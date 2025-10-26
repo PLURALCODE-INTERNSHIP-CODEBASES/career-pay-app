@@ -77,14 +77,6 @@ const Navbar = () => {
         </li>
         <li>
           <Link
-            to="/testimonials"
-            className="hover:text-gray-300 transition-colors duration-200"
-          >
-            Testimonials
-          </Link>
-        </li>
-        <li>
-          <Link
             to="/contact"
             className="hover:text-gray-300 transition-colors duration-200"
           >

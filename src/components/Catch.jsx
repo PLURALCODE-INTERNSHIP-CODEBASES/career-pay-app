@@ -6,7 +6,7 @@ const Catch = () => {
       <div className="bg-[#121212] min-h-max lg:min-h-[447px] rounded-none lg:rounded-lg text-white flex flex-col lg:flex-row items-center justify-between">
         <div className="px-20 lg:px-[60px] py-20 lg:py-[60px] w-full lg:w-[80%]">
           <h2 className="text-[70px] lg:text-[50px] leading-[1.1] mb-6">
-            Access borderless financial management in one digital space
+            Access borderless Compensation management in one digital space
           </h2>
           <p className="text-[35px] lg:text-lg text-white/70 font-sfPro font-light">
             Break free from traditional compensation limitations. Career Pay

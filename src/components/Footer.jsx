@@ -41,14 +41,6 @@ const Footer = () => {
               </li>
               <li>
                 <Link
-                  to="/testimonials"
-                  className="text-gray-300 hover:text-white transition-colors duration-200 text-[25px] lg:text-base block py-1"
-                >
-                  Testimonials
-                </Link>
-              </li>
-              <li>
-                <Link
                   to="/contact"
                   className="text-gray-300 hover:text-white transition-colors duration-200 text-[25px] lg:text-base block py-1"
                 >
@@ -68,14 +60,6 @@ const Footer = () => {
                   className="text-gray-300 hover:text-white transition-colors duration-200 text-[25px] lg:text-base block py-1"
                 >
                   Help Center
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to="/faq"
-                  className="text-gray-300 hover:text-white transition-colors duration-200 text-[25px] lg:text-base block py-1"
-                >
-                  FAQ
                 </Link>
               </li>
               <li>
