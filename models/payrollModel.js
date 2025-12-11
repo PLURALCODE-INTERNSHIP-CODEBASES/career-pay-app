@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const payrolItemSchema = new mongoose.Schema({
+const payrollItemSchema = new mongoose.Schema({
   employee: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Employee",
@@ -16,7 +16,7 @@ const payrolItemSchema = new mongoose.Schema({
   deductions: {
     tax: { type: Number, default: 0 },
     pension: { type: Number, dfault: 0 },
-    nhf: { typeNumber, default: 0 },
+    nhf: { type: Number, default: 0 },
     otherDeductions: [
       {
         name: String,
@@ -141,4 +141,4 @@ payrollSchema.index(
   { unique: true }
 );
 
-export const Payroll = mongoose.model("Payroll", payrollSchema);
+export default mongoose.model("Payroll", payrollSchema);

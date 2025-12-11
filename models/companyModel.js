@@ -3,126 +3,119 @@ import mongoose from "mongoose";
 const companySchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,
+    required: [true, 'Company name is required'],
+    trim: true
   },
-
-  industry: {
+  email: {
     type: String,
-    required: true,
-    trim: true,
+    required: [true, 'Company email is required'],
+    unique: true,
+    lowercase: true,
+    trim: true
   },
-
+  phone: {
+    type: String,
+    trim: true
+  },
   address: {
     street: String,
     city: String,
     state: String,
-    country: {
-      type: String,
-      default: "Nigeria",
-    },
-    postalCode: String,
-    required: true,
+    country: { type: String, default: 'Nigeria' },
+    postalCode: String
   },
-
+  industry: {
+    type: String,
+    trim: true
+  },
   companySize: {
     type: String,
-    enum: ["1-10", "11-50", "51-200", "201-500", "500+"],
-
-    default: "1-10",
+    enum: ['1-10', '11-50', '51-200', '201-500', '500+'],
+    default: '1-10'
   },
-
-  registerationNumber: {
+  registrationNumber: {
     type: String,
-    trim: true,
+    trim: true
   },
-
   taxId: {
     type: String,
-    trim: true,
+    trim: true
   },
-
-  logo: {
+  website: {
     type: String,
+    trim: true
   },
-
+  logo: {
+    type: String // URL to logo
+  },
   baseCurrency: {
     type: String,
-    enum: ["NGN", "USD"],
-    default: 25,
+    enum: ['NGN', 'USD'],
+    default: 'NGN'
   },
-
   payrollSettings: {
     paymentDay: {
       type: Number,
       min: 1,
       max: 31,
-      default: 25,
+      default: 25 // Default payment day
     },
-
     payFrequency: {
       type: String,
-      enum: ["monthly", "biweekly", "weekly"],
-      default: "monthly",
+      enum: ['monthly', 'bi-weekly', 'weekly'],
+      default: 'monthly'
     },
-
-    enableAutomaicTax: {
+    enableAutomaticTax: {
       type: Boolean,
-      default: true,
+      default: true
     },
-
     enablePension: {
       type: Boolean,
-      default: true,
-    },
+      default: true
+    }
   },
-
   bankDetails: {
     bankName: String,
+    accountNumber: String,
     accountName: String,
-    sortCode: String,
+    sortCode: String
   },
-
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
   isActive: {
     type: Boolean,
-    default: true,
+    default: true
   },
-
   onboardingCompleted: {
     type: Boolean,
-    default: false,
+    default: false
   },
-
-  financingStatus: {
-    type: String,
-    enum: ["none", "under_review", "approved", "rejected"],
-    default: "none",
-  },
-
   subscription: {
     plan: {
       type: String,
-      enum: ["active", "basic", "premium", "enterprise"],
-      default: "free",
+      enum: ['free', 'basic', 'premium', 'enterprise'],
+      default: 'free'
     },
-
     status: {
       type: String,
-      enum: ["active", "suspended", "cancelled"],
-      default: "active",
+      enum: ['active', 'suspended', 'cancelled'],
+      default: 'active'
     },
-
     startDate: Date,
-    endDate: Date,
-  },
-  timestamps: true,
+    endDate: Date
+  }
+}, {
+  timestamps: true
 });
 
 // Virtual for employee count
-companySchema.virtual("employmentCount", {
-  ref: "Employee",
-  localField: "_id",
-  foreignField: "company",
-  count: true,
+companySchema.virtual('employeeCount', {
+  ref: 'Employee',
+  localField: '_id',
+  foreignField: 'company',
+  count: true
 });
 
-export const Company = mongoose.model("Company", companySchema);
+export default mongoose.model("Company", companySchema);

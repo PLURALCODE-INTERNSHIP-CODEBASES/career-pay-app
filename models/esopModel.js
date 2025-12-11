@@ -85,14 +85,14 @@ const equityGrantSchema = new mongoose.Schema(
     },
 
     // Fair Market Value
-    currentFMV: { 
-      type: Number, 
+    currentFMV: {
+      type: Number,
       min: 0,
     },
 
     sharesExercised: {
       type: Number,
-      default0,
+      default: 0,
       min: 0,
     },
 
@@ -121,9 +121,11 @@ equityGrantSchema.virtual("vestingProgress").get(function () {
 });
 
 // Virtual to calculate the next vesting date
-equityGrantSchema.virtual("nextVestingDate").get(function() {
-    const upcomingVesting = this.vestingSchedule.find(v => !v.isProcessed && v.vestingDate > new Date());
-    return upcomingVesting ? upcomingVesting.vestingDate : null
-})
+equityGrantSchema.virtual("nextVestingDate").get(function () {
+  const upcomingVesting = this.vestingSchedule.find(
+    (v) => !v.isProcessed && v.vestingDate > new Date()
+  );
+  return upcomingVesting ? upcomingVesting.vestingDate : null;
+});
 
-export const Esop = mongoose.model("Esop", equityGrantSchema);
+export default mongoose.model("Esop", equityGrantSchema);

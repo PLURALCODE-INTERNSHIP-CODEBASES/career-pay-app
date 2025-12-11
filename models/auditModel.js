@@ -212,4 +212,4 @@ auditSchema.statics.getUserActivity = async function (userId, limit = 50) {
     .lean();
 };
 
-export const Audit = mongoose.model("Audit", auditSchema);
+export default mongoose.model("Audit", auditSchema);

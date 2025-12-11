@@ -1,4 +1,4 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 
 const userSchema = new mongoose.Schema(
@@ -91,4 +91,4 @@ userSchema.methods.changedPasswordAfter = async function (JWTTimestamp) {
   return false;
 };
 
-export const User = mongoose.model("User", userSchema);
+export default mongoose.model("User", userSchema);

@@ -111,7 +111,7 @@ const financingSchema = new mongoose.Schema(
       monthlyRevenue: Number,
       employeeCount: Number,
       monthlyPayrollCost: Number,
-      yearsInBusiness: SVGAnimatedNumber,
+      yearsInBusiness: Number,
     },
 
     reviewedBy: {
@@ -146,4 +146,4 @@ financingSchema.pre("save", function (next) {
   next();
 });
 
-export const Financing = mongoose.model("Financing", financingSchema);
+export default mongoose.model("Financing", financingSchema);
