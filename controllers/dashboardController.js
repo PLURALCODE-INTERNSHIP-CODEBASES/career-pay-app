@@ -4,6 +4,8 @@ import vestingService from "../services/vestingService.js";
 import Employee from "../models/employeeModel.js";
 import Financing from "../models/financingModel.js";
 import Company from "../models/companyModel.js";
+import EquityGrant from "../models/esopModel.js"
+import Payroll from "../models/payrollModel.js";
 
 class DashboardController {
   /**
@@ -64,7 +66,7 @@ class DashboardController {
           company,
           employees: employeeStats,
           payroll: {
-            ...payrollStats,
+            ...(payrollStats || {}),
             currentMonth: {
               month: currentMonth,
               year: currentYear,
@@ -150,7 +152,7 @@ class DashboardController {
           employeeCount,
           recentHires,
           upcomingVesting,
-          currentPayroll: currentPayroll[0] || null,
+          currentPayroll: currentPayroll?.[0] || null,
         },
       });
     } catch (error) {
@@ -221,6 +223,8 @@ class DashboardController {
           grossSalary: item.grossSalary,
           currency: item.currency,
         };
+      if (!item) return null;
+
       });
 
       res.status(200).json({
@@ -249,6 +253,10 @@ class DashboardController {
       const companyId = req.user.company;
       const { startDate, endDate } = req.query;
 
+      if (startDate && isNaN(new Date(startDate))) {
+        return res.status(400).json({ success: false, message: "Invalid startDate" });
+      }
+
       const stats = await auditService.getAuditStats(
         companyId,
         startDate,
@@ -275,8 +283,15 @@ class DashboardController {
   async getActivityTimeline(req, res) {
     try {
       const companyId = req.user.company;
-      const { startDate, endDate, groupBy = "day" } = req.query;
+      const { startDate, endDate, groupBy ="day" } = req.query;
 
+      const allowed = ["day", "week", "month", "year"];
+      if (!allowed.includes(groupBy)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid groupBy value"
+        });
+      }
       const timeline = await auditService.getActivityTimeline(
         companyId,
         startDate,
@@ -304,7 +319,7 @@ class DashboardController {
   async getRecentActivities(req, res) {
     try {
       const companyId = req.user.company;
-      const limit = parseInt(req.query.limit) || 20;
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);;
 
       const activities = await auditService.getRecentActivities(
         companyId,

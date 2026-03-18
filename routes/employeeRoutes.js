@@ -3,6 +3,7 @@ import employeeController from "../controllers/employeeController.js";
 import {
   protect,
   isHROrAbove,
+  isFounderOrAdmin,
   verifyEmployeeOwnership,
 } from "../middlewares/authMiddleware.js";
 import { validatePagination } from "../middlewares/validator.js";
@@ -53,6 +54,18 @@ router.get("/:id", verifyEmployeeOwnership, employeeController.getEmployeeById);
 router.put("/:id", isHROrAbove, employeeController.updateEmployee);
 
 /**
+ * @route   PATCH /api/employees/:id/profile
+ * @desc    Employee updates their own profile (phone, bank details, tax info only)
+ *          NEW route — BRD 2.1 (employees can update own profile, limited fields)
+ * @access  Private (Employee — own profile only)
+ */
+router.patch(
+  "/:id/profile",
+  verifyEmployeeOwnership,
+  employeeController.updateOwnProfile
+);
+
+/**
  * @route   PATCH /api/employees/:id/deactivate
  * @desc    Deactivate employee
  * @access  Private (HR, Admin, Founder)
@@ -75,6 +88,6 @@ router.patch("/:id/activate", isHROrAbove, employeeController.activateEmployee);
  * @desc    Delete employee (soft delete)
  * @access  Private (Admin, Founder)
  */
-router.delete("/:id", isHROrAbove, employeeController.deleteEmployee);
+router.delete("/:id", isFounderOrAdmin, employeeController.deleteEmployee);
 
 export default router;

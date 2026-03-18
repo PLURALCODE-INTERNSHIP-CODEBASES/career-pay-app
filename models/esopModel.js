@@ -4,6 +4,7 @@ const vestingScheduleSchema = new mongoose.Schema({
   vestingDate: {
     type: Date,
     required: true,
+    index: true
   },
 
   sharesVested: {
@@ -20,6 +21,7 @@ const vestingScheduleSchema = new mongoose.Schema({
   isProcessed: {
     type: Boolean,
     default: false,
+    index: true
   },
 
   processedAt: Date,
@@ -31,6 +33,7 @@ const equityGrantSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Company",
       required: true,
+      index: true
     },
 
     employee: {
@@ -112,12 +115,12 @@ const equityGrantSchema = new mongoose.Schema(
 
 // Virtual to calculate unvested shares
 equityGrantSchema.virtual("sharesUnvested").get(function () {
-  return this.totalShares - this.sharesUnvested;
+  return this.totalShares - this.sharesVested;
 });
 
 // Virtual to calculate vesting percentage progress
 equityGrantSchema.virtual("vestingProgress").get(function () {
-  return (this.sharesUnvested / this.totalShares) * 100;
+  return (this.sharesVested / this.totalShares) * 100;
 });
 
 // Virtual to calculate the next vesting date

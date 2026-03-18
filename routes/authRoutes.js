@@ -12,6 +12,20 @@ const router = express.Router();
 router.post("/register", authController.register);
 
 /**
+ * @route   GET /api/auth/verify-email/:token
+ * @desc    Verify company email after registration
+ * @access  Public — token in URL, no auth required
+ */
+router.get("/verify-email/:token", authController.verifyEmail);
+
+/**
+ * @route   POST /api/auth/resend-verification
+ * @desc    Resend email verification link
+ * @access  Private — user must be logged in
+ */
+router.post("/resend-verification", protect, authController.resendVerification);
+
+/**
  * @route   POST /api/auth/login
  * @desc    Login user
  * @access  Public
@@ -59,6 +73,12 @@ router.post("/change-password", protect, authController.changePassword);
  * @access  Private
  */
 router.get("/me", protect, authController.getCurrentUser);
+
+/**
+ * @route PUT /api/auth/me
+ * @desc Update editable profile fields (firstName, lastName, phone, profilePhoto)
+ */
+router.put("/me", protect, authController.updateProfile);
 
 /**
  * @route   GET /api/auth/verify-token

@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Payroll from "../models/payrollModel.js";
 import Employee from "../models/employeeModel.js";
 import Company from "../models/companyModel.js";
@@ -5,12 +6,53 @@ import Financing from "../models/financingModel.js";
 import Audit from "../models/auditModel.js";
 import taxCalculationService from "./taxCalculationService.js";
 
+// Helper: converts month number to readable name
+// e.g. 2 → "February", 12 → "December"
+// Used for the duplicate payroll error message — BRD Check 4
+function getMonthName(month) {
+  return new Date(2000, month - 1, 1).toLocaleString("default", {
+    month: "long",
+  });
+}
+
 class PayrollService {
   /**
    * Create a new payroll run
    */
   async createPayroll(companyId, month, year, userId) {
     try {
+      // Company settings complete — BRD 3.5
+      // baseCurrency and payFrequency must be set before payroll can be created
+      const company = await Company.findById(companyId).select(
+        "baseCurrency payrollSettings bankDetails name"
+      );
+ 
+      if (!company) {
+        throw new Error("Company not found");
+      }
+ 
+      if (!company.baseCurrency || !company.payrollSettings?.payFrequency) {
+        const error = new Error(
+          "Complete company settings before creating payroll"
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+ 
+      // Active employees exist — BRD 3.5 
+      // Cannot create payroll if there are no active employees to pay
+      const activeEmployeeCount = await Employee.countDocuments({
+        company: companyId,
+        isActive: true,
+      });
+ 
+      if (activeEmployeeCount === 0) {
+        const error = new Error(
+          "Cannot create payroll with no active employees"
+        );
+        error.statusCode = 400;
+        throw error;
+      }
       // Check if payroll already exists for this period
       const existingPayroll = await Payroll.findOne({
         company: companyId,
@@ -19,12 +61,27 @@ class PayrollService {
       });
 
       if (existingPayroll) {
-        throw new Error(`Payroll already exists for ${month}/${year}`);
+        const error = new Error(
+          // readable month name instead of 2/2026 — BRD Check 4
+          `Payroll already exists for ${getMonthName(month)} ${year}`
+        );
+        error.statusCode = 400;
+        throw error;
       }
+
+      // Check 6: Company bank details — BRD 3.5
+      // Not a hard error — just a warning returned alongside the created payroll
+      // Only relevant if company wants to use financing for payroll
+      const bankWarning = !company.bankDetails?.accountNumber
+          ? "Add bank details to your company profile to use the financing option"
+          : null;
+
 
       // Create draft payroll
       const payroll = await Payroll.create({
         company: companyId,
+        createdBy: userId,
+        currency: company.baseCurrency,
         payrollPeriod: { month, year },
         status: "draft",
       });
@@ -37,12 +94,18 @@ class PayrollService {
         module: "payroll",
         resourceType: "payroll",
         resourceId: payroll._id,
-        details: { month, year },
+        details: {
+          month,
+          year,
+          period: `${getMonthName(month)} ${year}`,
+          activeEmployees: activeEmployeeCount,
+        },
         status: "success",
         severity: "medium",
       });
 
-      return payroll;
+      // Return payroll and bank warning together
+      return {payroll, bankWarning};
     } catch (error) {
       throw error;
     }
@@ -52,11 +115,14 @@ class PayrollService {
    * Calculate payroll for all active employees
    */
   async calculatePayroll(payrollId, companyId, userId) {
+    const session = await mongoose.startSession();
     try {
-      const payroll = await Payroll.findOne({
+      session.startTransaction();
+
+       const payroll = await Payroll.findOne({
         _id: payrollId,
         company: companyId,
-      });
+      }).session(session);
 
       if (!payroll) {
         throw new Error("Payroll not found");
@@ -66,11 +132,21 @@ class PayrollService {
         throw new Error("Payroll can only be calculated when in draft status");
       }
 
+      // Get all active employees — include start date for PAY-012
+      // PAY-012: only include employees whose start date is on or before this period
+      const periodEndDate = new Date(
+        payroll.payrollPeriod.year,
+        payroll.payrollPeriod.month - 1, // month is 0-indexed in Date
+        1
+      );
+
       // Get all active employees
       const employees = await Employee.find({
         company: companyId,
         isActive: true,
-      }).populate("user", "firstName lastName email");
+        startDate: { $lte: periodEndDate }, // PAY-012: exclude employees who started after this period
+      }).session(session)
+        .populate("user", "firstName lastName email");
 
       if (employees.length === 0) {
         throw new Error("No active employees found");
@@ -78,7 +154,6 @@ class PayrollService {
 
       // Calculate payroll for each employee
       const payrollItems = [];
-
       for (const employee of employees) {
         const calculation = taxCalculationService.calculateEmployeePayroll({
           grossSalary: employee.salary.amount,
@@ -90,6 +165,7 @@ class PayrollService {
 
         payrollItems.push({
           employee: employee._id,
+          baseSalary: employee.salary.amount,
           grossSalary: calculation.grossSalary,
           deductions: {
             tax: calculation.deductions.tax,
@@ -115,7 +191,8 @@ class PayrollService {
       }
 
       // Calculate summary
-      const summary = {
+      payroll.payrollItems = payrollItems;
+      payroll.summary = {
         totalGross: payrollItems.reduce(
           (sum, item) => sum + item.grossSalary,
           0
@@ -126,6 +203,18 @@ class PayrollService {
             item.deductions.tax +
             item.deductions.pension +
             item.deductions.nhf,
+          0
+        ),
+        // ADDED: totalAdditions was missing from summary — BRD 3.4
+        totalAdditions: payrollItems.reduce(
+          (sum, item) =>
+            sum +
+            item.additions.bonus +
+            item.additions.overtime +
+            item.additions.allowances.reduce(
+              (aSum, a) => aSum + (a.amount || 0),
+              0
+            ),
           0
         ),
         totalNet: payrollItems.reduce((sum, item) => sum + item.netSalary, 0),
@@ -142,10 +231,8 @@ class PayrollService {
       };
 
       // Update payroll
-      payroll.payrollItems = payrollItems;
-      payroll.summary = summary;
       payroll.status = "calculated";
-      await payroll.save();
+      await payroll.save({ session });
 
       // Log audit
       await Audit.log({
@@ -158,20 +245,26 @@ class PayrollService {
         details: {
           month: payroll.payrollPeriod.month,
           year: payroll.payrollPeriod.year,
-          totalEmployees: summary.totalEmployees,
-          totalNet: summary.totalNet,
+          totalEmployees: payroll.summary.totalEmployees,
+          totalNet: payroll.summary.totalNet,
         },
         status: "success",
         severity: "medium",
         metadata: {
-          affectedRecords: summary.totalEmployees,
+          affectedRecords: payroll.summary.totalEmployees,
         },
-      });
+      }, session
+    );
+
+    await session.commitTransaction();
+    session.endSession();
 
       return payroll;
     } catch (error) {
-      throw error;
-    }
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
   }
 
   /**
@@ -224,11 +317,15 @@ class PayrollService {
    * Process payroll payment
    */
   async processPayroll(payrollId, companyId, userId, useFinancing = false) {
+    const session = await mongoose.startSession();
     try {
+      session.startTransaction();
+
       const payroll = await Payroll.findOne({
         _id: payrollId,
         company: companyId,
-      }).populate("company");
+      }).populate("company")
+        .session(session);
 
       if (!payroll) {
         throw new Error("Payroll not found");
@@ -244,7 +341,7 @@ class PayrollService {
           company: companyId,
           status: "active",
           outstandingBalance: { $gte: payroll.summary.totalNet },
-        });
+        }).session(session);
 
         if (!activeFinancing) {
           throw new Error(
@@ -270,14 +367,40 @@ class PayrollService {
           .substr(2, 9)}`;
       });
 
-      await payroll.save();
+      await payroll.save({session});
+
+        // 4️⃣ Log audit inside session
+    await Audit.log(
+      {
+        company: companyId,
+        user: userId,
+        action: "payroll_processed",
+        module: "payroll",
+        resourceType: "payroll",
+        resourceId: payrollId,
+        details: {
+          month: payroll.payrollPeriod.month,
+          year: payroll.payrollPeriod.year,
+        },
+        status: "success",
+        severity: "high",
+      },
+      session
+    );
 
       // TODO: Integrate with payment gateway to disburse funds
       // For MVP, we'll simulate successful payment
-      await this.completePayrollProcessing(payrollId, companyId, userId);
+    await this.completePayrollProcessing(payrollId, companyId, userId, session);
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
 
       return payroll;
     } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+
       // Mark payroll as failed
       await Payroll.findByIdAndUpdate(payrollId, { status: "failed" });
 
@@ -300,9 +423,9 @@ class PayrollService {
   /**
    * Complete payroll processing (called after payment confirmation)
    */
-  async completePayrollProcessing(payrollId, companyId, userId) {
+  async completePayrollProcessing(payrollId, companyId, userId, session) {
     try {
-      const payroll = await Payroll.findById(payrollId);
+      const payroll = await Payroll.findById(payrollId).session(session);
 
       if (!payroll) {
         throw new Error("Payroll not found");
@@ -314,7 +437,8 @@ class PayrollService {
       });
 
       payroll.status = "completed";
-      await payroll.save();
+
+      await payroll.save({session});
 
       // Log audit
       await Audit.log({
@@ -335,7 +459,8 @@ class PayrollService {
         metadata: {
           affectedRecords: payroll.summary.totalEmployees,
         },
-      });
+      }, session
+    );
 
       return payroll;
     } catch (error) {
@@ -358,6 +483,7 @@ class PayrollService {
         )
         .populate("approvedBy", "firstName lastName email")
         .populate("processedBy", "firstName lastName email")
+        .populate("createdBy", "firstName lastName email")
         .populate("financingUsed", "requestedAmount status");
 
       if (!payroll) {
@@ -390,7 +516,7 @@ class PayrollService {
 
       const payrolls = await Payroll.find(query)
         .sort({ "payrollPeriod.year": -1, "payrollPeriod.month": -1 })
-        .select("payrollPeriod summary status approvedAt processedAt")
+        .select("payrollPeriod summary status approvedAt processedAt createdBy")
         .lean();
 
       return payrolls;
@@ -430,6 +556,7 @@ class PayrollService {
 
       return {
         company: payroll.company,
+        currency: payroll.currency,
         employee: {
           name: `${employee.user.firstName} ${employee.user.lastName}`,
           employeeId: employee.employeeId,
@@ -450,7 +577,18 @@ class PayrollService {
    */
   async exportPayroll(payrollId, companyId, userId) {
     try {
-      const payroll = await this.getPayrollById(payrollId, companyId);
+      const payroll = await Payroll.findOne({ _id: payrollId, company: companyId })
+        .populate({
+          path: "payrollItems.employee",   // populate employee inside payrollItems
+          populate: {
+            path: "user",                  // populate user inside employee
+            select: "firstName lastName"
+          }
+        });
+
+      if (!payroll) {
+        throw new Error("Payroll not found");
+      }
 
       // Log audit
       await Audit.log({
@@ -470,6 +608,7 @@ class PayrollService {
         name: `${item.employee.user.firstName} ${item.employee.user.lastName}`,
         position: item.employee.position,
         department: item.employee.department,
+        baseSalary: item.baseSalary,
         grossSalary: item.grossSalary,
         tax: item.deductions.tax,
         pension: item.deductions.pension,

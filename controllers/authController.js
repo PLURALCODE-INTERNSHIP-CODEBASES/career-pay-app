@@ -1,4 +1,6 @@
+import jwt from "jsonwebtoken";
 import authService from "../services/authService.js";
+import { isValidEmail, isStrongPassword, isValidNigerianPhone, } from "../middlewares/validator.js";
 
 class AuthController {
   /**
@@ -13,14 +15,53 @@ class AuthController {
       if (
         !company?.name ||
         !company?.email ||
+        !company?.phone ||
+        !company?.industry ||
+        !company?.baseCurrency ||
         !user?.email ||
-        !user?.password
+        !user?.password ||
+        !user?.firstName ||
+        !user?.lastName ||
+        !user?.phone
       ) {
         return res.status(400).json({
           success: false,
           message: "Missing required fields",
         });
       }
+
+       // Validate company email ---
+    if (!isValidEmail(company.email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid company email format",
+      });
+    }
+
+    // Validate user email ---
+    if (!isValidEmail(user.email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user email format",
+      });
+    }
+
+    // Validate user password ---
+    if (!isStrongPassword(user.password)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must be at least 8 characters, contain 1 uppercase, 1 lowercase, 1 number, and 1 special character",
+      });
+    }
+
+    // Validate user phone number (+234 format) ---
+    if (!isValidNigerianPhone(user.phone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number must be in +234XXXXXXXX format",
+      });
+    }
 
       const ipAddress = req.ip || req.connection.remoteAddress;
       const userAgent = req.get("user-agent");
@@ -45,6 +86,62 @@ class AuthController {
       });
     }
   }
+
+   /**
+   * Verify company email after registration
+   * GET /api/auth/verify-email/:token
+   */
+  async verifyEmail(req, res) {
+    try {
+      const { token } = req.params;
+ 
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          message: "Verification token is required",
+        });
+      }
+ 
+      const result = await authService.verifyEmail(token);
+ 
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: {
+          onboardingCompleted: result.onboardingCompleted,
+        },
+      });
+    } catch (error) {
+      console.error("Email verification error:", error);
+      res.status(error.statusCode || 400).json({
+        success: false,
+        message: error.message || "Email verification failed",
+      });
+    }
+  }
+
+  /**
+ * Resend verification email
+ * POST /api/auth/resend-verification
+ */
+async resendVerification(req, res) {
+  try {
+    const companyId = req.user.company;
+
+    const result = await authService.resendVerificationEmail(companyId);
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    console.error("Resend verification error:", error);
+    res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message || "Failed to resend verification email",
+    });
+  }
+}
 
   /**
    * Login user
@@ -78,7 +175,7 @@ class AuthController {
       });
     } catch (error) {
       console.error("Login error:", error);
-      res.status(401).json({
+      res.status(error.statusCode || 401).json({
         success: false,
         message: error.message || "Login failed",
       });
@@ -124,10 +221,20 @@ class AuthController {
     try {
       const userId = req.user.id;
       const companyId = req.user.company;
+      const token = req.headers.authorization?.split(" ")[1];
+
+      const { refreshToken } = req.body
       const ipAddress = req.ip || req.connection.remoteAddress;
       const userAgent = req.get("user-agent");
 
-      await authService.logout(userId, companyId, ipAddress, userAgent);
+      if (!refreshToken) {
+        return res.status(400).json({
+          success: false,
+          message: "Refresh token  required"
+        })
+      }
+
+      await authService.logout(userId, token, refreshToken, companyId, ipAddress, userAgent);
 
       res.status(200).json({
         success: true,
@@ -157,6 +264,13 @@ class AuthController {
         });
       }
 
+          // Validate user email ---
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user email format",
+      });
+    }
       const result = await authService.requestPasswordReset(email);
 
       res.status(200).json({
@@ -169,9 +283,9 @@ class AuthController {
       });
     } catch (error) {
       console.error("Forgot password error:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to process password reset request",
+      res.status(200).json({
+        success: true,
+        message: "If an account exists, a reset link has been sent",
       });
     }
   }
@@ -189,6 +303,14 @@ class AuthController {
           success: false,
           message: "Reset token and new password are required",
         });
+      }
+
+        // Optional: enforce strength here too (defensive programming)
+      if (!isStrongPassword(newPassword)) {
+        return res.status(400).json({
+          success: false,
+          message:"Password must contain 1 uppercase, 1 lowercase, 1 number and special character"
+      });
       }
 
       if (newPassword.length < 8) {
@@ -227,7 +349,7 @@ class AuthController {
    */
   async changePassword(req, res) {
     try {
-      const { currentPassword, newPassword } = req.body;
+      const { currentPassword, newPassword, refreshToken } = req.body;
       const userId = req.user.id;
       const companyId = req.user.company;
 
@@ -236,6 +358,14 @@ class AuthController {
           success: false,
           message: "Current password and new password are required",
         });
+      }
+
+        // Optional: enforce strength here too (defensive programming)
+      if (!isStrongPassword(newPassword)) {
+        return res.status(400).json({
+          success: false,
+          message:"Password must contain 1 uppercase, 1 lowercase, 1 number and 1 special character"
+      });
       }
 
       if (newPassword.length < 8) {
@@ -253,6 +383,7 @@ class AuthController {
         companyId,
         currentPassword,
         newPassword,
+        refreshToken,
         ipAddress,
         userAgent
       );
@@ -277,12 +408,11 @@ class AuthController {
   async getCurrentUser(req, res) {
     try {
       const userId = req.user.id;
-
-      const user = await authService.getCurrentUser(userId);
+      const profile = await authService.getCurrentUser(userId);
 
       res.status(200).json({
         success: true,
-        data: user,
+        data: profile,
       });
     } catch (error) {
       console.error("Get current user error:", error);
@@ -293,20 +423,75 @@ class AuthController {
     }
   }
 
+
+  /**
+   * Update Profile
+   * PUT /api/auth/me
+   */
+  async updateProfile(req, res) {
+    try {
+      const userId = req.user.id;
+      const companyId = req.user.company;
+      const updates = req.body;
+
+      if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "At least one field must be provided",
+        });
+      }
+
+      const ipAddress = req.ip || req.connection.remoteAddress;
+      const userAgent = req.get("user-agent");
+
+      const result = await authService.updateProfile(
+        userId,
+        companyId,
+        updates,
+        ipAddress,
+        userAgent
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Profile updated successfully",
+        data: result,
+      });
+    } catch (error) {
+      console.error("Update profile error:", error);
+      return res.status(error.statusCode || 400).json({
+        success: false,
+        message: error.message || "Profile update failed",
+      });
+    }
+  }
+
   /**
    * Verify token validity
    * GET /api/auth/verify-token
    */
   async verifyToken(req, res) {
     try {
+      const token = req.headers.authorization?.split(" ")[1];
+      let expiresAt = null;
+
+      if (token) {
+        const decoded = jwt.decode(token);
+        if (decoded?.exp) {
+          expiresAt = new Date(decoded.exp * 1000).toISOString();
+        }
+      }
       // If request reaches here, token is valid (middleware already verified)
       res.status(200).json({
         success: true,
         message: "Token is valid",
         data: {
           userId: req.user.id,
+          email: req.user.email,
           role: req.user.role,
+          companyId: req.user.company,
         },
+        expiresAt,
       });
     } catch (error) {
       console.error("Verify token error:", error);

@@ -1,5 +1,6 @@
 import vestingService from "../services/vestingService.js";
 import Employee from "../models/employeeModel.js";
+import EquityGrant from "../models/esopModel.js"
 
 class EquityController {
   /**

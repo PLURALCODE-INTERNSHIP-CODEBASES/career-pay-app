@@ -1,6 +1,82 @@
 import Employee from "../models/employeeModel.js";
 import User from "../models/userModel.js";
+import Company from "../models/companyModel.js";
 import Audit from "../models/auditModel.js";
+import emailService from "../services/emailService.js";
+
+// Nigerian Banks & Validation Helpers
+// Full CBN-licensed commercial and microfinance banks list.
+// Used to validate bankDetails.bankName on create and update.
+
+const NIGERIAN_BANKS = [ "Access Bank","Citibank Nigeria","Ecobank Nigeria","Fidelity Bank",
+  "First Bank of Nigeria","First City Monument Bank","Globus Bank","Guaranty Trust Bank","Heritage Bank",
+  "Keystone Bank","Lotus Bank","Parallex Bank","Polaris Bank","Premium Trust Bank","Providus Bank",
+  "Stanbic IBTC Bank","Standard Chartered Bank","Sterling Bank","SunTrust Bank","Titan Trust Bank",
+  "Union Bank of Nigeria","United Bank for Africa","Unity Bank","Wema Bank","Zenith Bank",
+  // Microfinance & Digital Banks
+  "Kuda Bank","Opay","Palmpay","Moniepoint","VFD Microfinance Bank",
+  "Carbon","Rubies Bank","Sparkle Microfinance Bank",
+];
+
+/**
+ * Validates bank details against BRD rules and your custom validations.
+ * Warnings (non-blocking):
+ *   - Account name doesn't contain employee's first or last name
+ */
+function validateBankDetails(bankDetails, firstName, lastName) {
+  const errors = [];
+  const warnings = [];
+
+  if (bankDetails) {
+    // Account number: must be exactly 10 digits
+    if (bankDetails.accountNumber) {
+      if (!/^\d{10}$/.test(bankDetails.accountNumber)) {
+        errors.push("Account number must be exactly 10 digits (NUBAN format)");
+      }
+    }
+
+    // Bank name: must be from approved Nigerian banks list
+    if (bankDetails.bankName) {
+      const isValidBank = NIGERIAN_BANKS.some(
+        (bank) => bank.toLowerCase() === bankDetails.bankName.toLowerCase()
+      );
+      if (!isValidBank) {
+        errors.push(
+          `"${bankDetails.bankName}" is not a recognised CBN-licensed bank. Please use the approved banks list.`
+        );
+      }
+    }
+
+    // Account name: warn if neither first nor last name appears
+    // Simple check — account name may be in different order or abbreviated
+    if (bankDetails.accountName && firstName && lastName) {
+      const accountNameLower = bankDetails.accountName.toLowerCase();
+      const firstNameLower = firstName.toLowerCase();
+      const lastNameLower = lastName.toLowerCase();
+
+      const nameMatch =
+        accountNameLower.includes(firstNameLower) ||
+        accountNameLower.includes(lastNameLower);
+
+      if (!nameMatch) {
+        warnings.push(
+          `Account name "${bankDetails.accountName}" does not appear to match the employee's name (${firstName} ${lastName}). Please verify this is the correct account.`
+        );
+      }
+    }
+  }
+
+  return { errors, warnings };
+}
+
+/**
+ * Validates Nigerian phone number format.
+ * Must be +234XXXXXXXXXX — 13 characters total.
+ */
+function validatePhoneFormat(phone) {
+  if (!phone) return true; // phone is optional at employee level
+  return /^\+234\d{10}$/.test(phone);
+}
 
 class EmployeeController {
   /**
@@ -41,6 +117,43 @@ class EmployeeController {
         });
       }
 
+      // Validate phone format if provided 
+      if (phone && !validatePhoneFormat(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone must be in +234XXXXXXXXXX format (e.g. +2348012345678)",
+        });
+      }
+
+      // Start date cannot be in the future — BRD rule EMP-005
+      if (new Date(startDate) > new Date()) {
+        return res.status(400).json({
+          success: false,
+          message: "Start date cannot be in the future",
+        });
+      }
+
+      // Salary currency must match company base currency — BRD rule EMP-007
+      if (salary?.currency) {
+        const company = await Company.findById(companyId).select("baseCurrency");
+        if (company && salary.currency !== company.baseCurrency) {
+          return res.status(400).json({
+            success: false,
+            message: `Salary currency (${salary.currency}) must match company base currency (${company.baseCurrency})`,
+          });
+        }
+      }
+
+      // Bank details validation (hard errors + warnings)
+      const bankValidation = validateBankDetails(bankDetails, firstName, lastName);
+      if (bankValidation.errors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Bank details validation failed",
+          errors: bankValidation.errors,
+        });
+      }
+
       // Check if user email already exists
       const existingUser = await User.findOne({ email });
       if (existingUser) {
@@ -50,10 +163,12 @@ class EmployeeController {
         });
       }
 
+      const temporaryPassword = Math.random().toString(36).slice(-8) + "Aa1!";
+
       // Create user account for employee
       const user = await User.create({
         email,
-        password: Math.random().toString(36).slice(-8) + "Aa1!", // Temporary password
+        password: temporaryPassword, 
         firstName,
         lastName,
         phone,
@@ -98,11 +213,27 @@ class EmployeeController {
         severity: "medium",
       });
 
-      // TODO: Send welcome email with temporary password
+      // Send welcome email with temporary password to new employee
+      try {
+        await emailService.sendWelcomeEmail(
+          {
+            firstName: user.firstName,
+            email: user.email,
+          },
+          temporaryPassword // the plain text password before hashing
+        );
+      } catch (emailError) {
+        // Don't block the response if email fails
+        console.error("Welcome email failed:", emailError.message);
+      }
 
       res.status(201).json({
         success: true,
         message: "Employee created successfully",
+        // include bank warnings in response if any
+        ...(bankValidation.warnings.length > 0 && {
+          warnings: bankValidation.warnings,
+        }),
         data: {
           employee,
           user: {
@@ -131,53 +262,113 @@ class EmployeeController {
       const companyId = req.user.company;
       const {
         page = 1,
-        limit = 50,
         department,
         position,
         isActive,
         search,
+        sortBy = "lastName",
+        sortOrder = "asc",
       } = req.query;
 
-      const query = { company: companyId };
+      // enforce pagination limit max 100 — BRD rule FLT-009
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
-      // Apply filters
-      if (department) query.department = department;
-      if (position) query.position = position;
-      if (isActive !== undefined) query.isActive = isActive === "true";
+      const skip = (parseInt(page) - 1) * limit;
 
-      const skip = (parseInt(page) - 1) * parseInt(limit);
+      // Build the initial match — only this company's employees
+      const matchStage = { company: companyId };
+      if (department) matchStage.department = department;
+      if (position) matchStage.position = { $regex: position, $options: "i" };
+      if (isActive !== undefined) matchStage.isActive = isActive === "true";
 
-      let employees = await Employee.find(query)
-        .populate("user", "firstName lastName email phone role isActive")
-        .populate("manager", "user employeeId position")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean();
-
-      // Apply search filter if provided
-      if (search) {
-        const searchLower = search.toLowerCase();
-        employees = employees.filter(
-          (emp) =>
-            emp.user.firstName.toLowerCase().includes(searchLower) ||
-            emp.user.lastName.toLowerCase().includes(searchLower) ||
-            emp.user.email.toLowerCase().includes(searchLower) ||
-            emp.employeeId.toLowerCase().includes(searchLower) ||
-            emp.position.toLowerCase().includes(searchLower)
-        );
-      }
-
-      const total = await Employee.countDocuments(query);
+      // Sort direction: 1 = ascending, -1 = descending
+      const sortDirection = sortOrder === "desc" ? -1 : 1;
+      // Build the aggregation pipeline
+      // Think of each stage as one instruction MongoDB runs in order
+      const pipeline = [
+ 
+        // Stage 1: filter to only this company's employees
+        { $match: matchStage },
+ 
+        // Stage 2: join the User document so we have firstName, lastName, email, phone
+        // This is the equivalent of .populate("user") but happens inside MongoDB
+        // "from" is the actual MongoDB collection name (lowercase + plural of model name)
+        {
+          $lookup: {
+            from: "users",
+            localField: "user",     // the field on Employee that holds the User ID
+            foreignField: "_id",    // the matching field on the User document
+            as: "user",             // store the result back into "user"
+          },
+        },
+ 
+        // Stage 3: $lookup returns an array — flatten it to a single object
+        // Because one employee only has one user, we just unwrap the array
+        { $unwind: "$user" },
+ 
+        // Stage 4: join the manager document (same idea as joining user)
+        {
+          $lookup: {
+            from: "employees",
+            localField: "manager",
+            foreignField: "_id",
+            as: "manager",
+          },
+        },
+ 
+        // Stage 5: flatten manager array — use preserveNullAndEmptyArrays so
+        // employees without a manager don't get dropped from results
+        { $unwind: { path: "$manager", preserveNullAndEmptyArrays: true } },
+ 
+        // Stage 6: apply search filter if provided — BRD 2.2
+        // $or means: match if ANY of these conditions are true
+        // $regex means: partial match (like .includes() in JavaScript)
+        ...(search
+          ? [
+              {
+                $match: {
+                  $or: [
+                    { "user.firstName": { $regex: search, $options: "i" } },
+                    { "user.lastName":  { $regex: search, $options: "i" } },
+                    { "user.email":     { $regex: search, $options: "i" } },
+                    { "user.phone":     { $regex: search, $options: "i" } },
+                    { position:         { $regex: search, $options: "i" } },
+                    { employeeId:       { $regex: search, $options: "i" } },
+                  ],
+                },
+              },
+            ]
+          : []),
+ 
+        // Stage 7: NOW we can sort by user.lastName because it exists at this point
+        // BRD FLT-010: default is lastName ascending
+        { $sort: { [`user.${sortBy}`]: sortDirection } },
+ 
+        // Stage 8: count total before paginating (for pagination response)
+        // We use $facet to run two things at the same time:
+        // - "data": the actual paginated results
+        // - "total": just the count
+        {
+          $facet: {
+            data: [{ $skip: skip }, { $limit: limit }],
+            total: [{ $count: "count" }],
+          },
+        },
+      ];
+ 
+      const [result] = await Employee.aggregate(pipeline);
+ 
+      const employees = result.data;
+      const total = result.total[0]?.count || 0;
 
       res.status(200).json({
         success: true,
         data: employees,
         pagination: {
           page: parseInt(page),
-          limit: parseInt(limit),
+          limit,
           total,
-          pages: Math.ceil(total / parseInt(limit)),
+          pages: Math.ceil(total / limit),
         },
       });
     } catch (error) {
@@ -216,6 +407,36 @@ class EmployeeController {
         });
       }
 
+      // field-level access control — BRD 2.4
+      // Employees viewing their own profile get a filtered response
+      // HR+ gets the full record
+      const role = req.user.role;
+      const isOwnProfile = employee.user._id.toString() === req.user.id;
+
+      if (role === "employee" && isOwnProfile) {
+        // Employee can see their own data but not other employees' salary in full detail
+        return res.status(200).json({
+          success: true,
+          data: {
+            employeeId:     employee.employeeId,
+            position:       employee.position,
+            department:     employee.department,
+            employmentType: employee.employmentType,
+            startDate:      employee.startDate,
+            salary:         employee.salary,       // own salary — allowed
+            bankDetails:    employee.bankDetails,  // own bank details — allowed
+            taxInformation: employee.taxInformation,
+            user: {
+              firstName: employee.user.firstName,
+              lastName:  employee.user.lastName,
+              email:     employee.user.email,
+              phone:     employee.user.phone,
+            },
+          },
+        });
+      }
+
+
       res.status(200).json({
         success: true,
         data: employee,
@@ -239,6 +460,7 @@ class EmployeeController {
       const userId = req.user.id;
       const { id } = req.params;
       const updates = req.body;
+      const role = req.user.role;
 
       const employee = await Employee.findOne({
         _id: id,
@@ -252,18 +474,63 @@ class EmployeeController {
         });
       }
 
-      const before = { ...employee.toObject() };
+            // NEW: role-based field restrictions — BRD 2.4
+      // HR can update most fields but NOT salary
+      // Admin and Founder can update everything including salary
+      let allowedUpdates;
 
-      // Update allowed fields
-      const allowedUpdates = [
-        "position",
-        "department",
-        "employmentType",
-        "salary",
-        "bankDetails",
-        "taxInformation",
-        "manager",
-      ];
+      if (role === "founder" || role === "admin") {
+        allowedUpdates = [
+          "position",
+          "department",
+          "employmentType",
+          "salary",       // Admin/Founder only
+          "bankDetails",
+          "taxInformation",
+          "manager",
+        ];
+      } else {
+        // HR — cannot touch salary
+        allowedUpdates = [
+          "position",
+          "department",
+          "employmentType",
+          "bankDetails",
+          "taxInformation",
+          "manager",
+        ];
+      }
+
+      // NEW: block HR from updating salary — BRD 2.4
+      if (role === "hr" && updates.salary !== undefined) {
+        return res.status(403).json({
+          success: false,
+          message: "HR cannot update salary. Only Admin or Founder can change salary.",
+        });
+      }
+
+      // NEW: bank details validation on update — hard errors + warnings
+      // firstName/lastName come from the User record — those fields live on User,
+      // not on the Employee model, and are updated via /api/auth/me
+      if (updates.bankDetails) {
+        const employeeUser = await User.findById(employee.user).select("firstName lastName");
+        const bankValidation = validateBankDetails(
+          updates.bankDetails,
+          employeeUser?.firstName,
+          employeeUser?.lastName
+        );
+        if (bankValidation.errors.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Bank details validation failed",
+            errors: bankValidation.errors,
+          });
+        }
+        // store warnings to return in response
+        req._bankWarnings = bankValidation.warnings;
+      }
+
+      const before = { ...employee.toObject() };
 
       allowedUpdates.forEach((field) => {
         if (updates[field] !== undefined) {
@@ -272,15 +539,6 @@ class EmployeeController {
       });
 
       await employee.save();
-
-      // Update user details if provided
-      if (updates.firstName || updates.lastName || updates.phone) {
-        await User.findByIdAndUpdate(employee.user, {
-          ...(updates.firstName && { firstName: updates.firstName }),
-          ...(updates.lastName && { lastName: updates.lastName }),
-          ...(updates.phone && { phone: updates.phone }),
-        });
-      }
 
       // Log audit
       await Audit.log({
@@ -303,6 +561,10 @@ class EmployeeController {
       res.status(200).json({
         success: true,
         message: "Employee updated successfully",
+        // include bank warnings if any
+        ...(req._bankWarnings?.length > 0 && {
+          warnings: req._bankWarnings,
+        }),
         data: employee,
       });
     } catch (error) {
@@ -310,6 +572,97 @@ class EmployeeController {
       res.status(400).json({
         success: false,
         message: error.message || "Failed to update employee",
+      });
+    }
+  }
+
+  /**
+   * NEW: Employee updates their own profile (limited fields only)
+   * PATCH /api/employees/:id/profile
+   *
+   * BRD 2.1 — employees can update own profile (limited fields)
+   * BRD 2.4 — employees can only update: phone, bank details, tax information
+   */
+  async updateOwnProfile(req, res) {
+    try {
+      const companyId = req.user.company;
+      const userId = req.user.id;
+      const { id } = req.params;
+      const updates = req.body;
+
+      const employee = await Employee.findOne({ _id: id, company: companyId });
+
+      if (!employee) {
+        return res.status(404).json({
+          success: false,
+          message: "Employee not found",
+        });
+      }
+
+      // Make sure the employee can only update their own profile
+      if (employee.user.toString() !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only update your own profile",
+        });
+      }
+
+      // Employees can only update these fields — BRD 2.4
+      const allowedFields = ["bankDetails", "taxInformation"];
+
+      // NEW: bank details validation
+      if (updates.bankDetails) {
+        const user = await User.findById(userId).select("firstName lastName");
+        const bankValidation = validateBankDetails(
+          updates.bankDetails,
+          user.firstName,
+          user.lastName
+        );
+        if (bankValidation.errors.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Bank details validation failed",
+            errors: bankValidation.errors,
+          });
+        }
+        req._bankWarnings = bankValidation.warnings;
+      }
+
+      allowedFields.forEach((field) => {
+        if (updates[field] !== undefined) {
+          employee[field] = updates[field];
+        }
+      });
+
+      await employee.save();
+
+      await Audit.log({
+        company: companyId,
+        user: userId,
+        action: "employee_profile_updated",
+        module: "employee",
+        resourceType: "employee",
+        resourceId: employee._id,
+        details: { updatedFields: Object.keys(updates) },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        status: "success",
+        severity: "low",
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Profile updated successfully",
+        ...(req._bankWarnings?.length > 0 && {
+          warnings: req._bankWarnings,
+        }),
+        data: employee,
+      });
+    } catch (error) {
+      console.error("Update own profile error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update profile",
       });
     }
   }
@@ -547,7 +900,7 @@ class EmployeeController {
             count: d.count,
           })),
           byEmploymentType: byEmploymentType.map((t) => ({
-            type: t._id,
+            type: t._id || "Unspecified",
             count: t.count,
           })),
           recentHires,

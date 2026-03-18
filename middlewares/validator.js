@@ -32,15 +32,16 @@ export const isValidEmail = (email) => {
 
 // Validate password strength
 export const isStrongPassword = (password) => {
-  // At least 8 characters, 1 uppercase, 1 lowercase, 1 number
-  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+  // At least 8 characters, 1 uppercase, 1 lowercase, 1 number, 1 special character
+  const passwordRegex =
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/;
   return passwordRegex.test(password);
 };
 
 // Validate Nigerian phone number
 export const isValidNigerianPhone = (phone) => {
   // Format: 080xxxxxxxx or +234xxxxxxxxxx
-  const phoneRegex = /^(\+234|0)[7-9][0-1]\d{8}$/;
+  const phoneRegex = /^\+234[7-9][0-1]\d{8}$/;
   return phoneRegex.test(phone);
 };
 

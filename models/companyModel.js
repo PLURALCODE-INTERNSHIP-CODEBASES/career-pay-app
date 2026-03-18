@@ -15,6 +15,8 @@ const companySchema = new mongoose.Schema({
   },
   phone: {
     type: String,
+    required: true,
+    unique: true,
     trim: true
   },
   address: {
@@ -26,6 +28,7 @@ const companySchema = new mongoose.Schema({
   },
   industry: {
     type: String,
+    required: [true, 'Industry is required'],
     trim: true
   },
   companySize: {
@@ -50,6 +53,7 @@ const companySchema = new mongoose.Schema({
   },
   baseCurrency: {
     type: String,
+    required: [true, 'Base currency is required'],
     enum: ['NGN', 'USD'],
     default: 'NGN'
   },
@@ -84,6 +88,20 @@ const companySchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+
+  // Token generated at registration and sent via email link
+  // Hashed before saving — raw token goes in the email URL
+  // Cleared after successful verification
+  emailVerificationToken: {
+    type: String,
+    select: false, // never returned in queries by default
+  },
+ 
+  // Token expires after 24 hours — company must verify within this window
+  emailVerificationExpires: {
+    type: Date,
+    select: false,
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -105,6 +123,35 @@ const companySchema = new mongoose.Schema({
     },
     startDate: Date,
     endDate: Date
+  },
+  monthsActive: {
+    type: Number,
+    default: 0,
+  },
+  payrollRunsLast3Months: {
+    type: Number,
+    default: 0,
+  },
+  monthlyPayrollCost: {
+    type: Number,
+    default: 0,
+  },
+  hasOutstandingDefault: {
+    type: Boolean,
+    default: false,
+  },
+  kycComplete: {
+    type: Boolean,
+    default: false,
+  },
+  latePaymentsCount: {
+    type: Number,
+    default: 0,
+  },
+  fundingStage: {
+    type: String,
+    enum: ['bootstrapped', 'pre-seed', 'seed+'],
+    default: 'bootstrapped',
   }
 }, {
   timestamps: true

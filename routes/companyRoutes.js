@@ -8,12 +8,27 @@ const router = express.Router();
 // All routes require authentication
 router.use(protect);
 
+// ─── Helper ──────────────────────────────────────────────────────────────────
+// Re-evaluates whether a company has completed onboarding.
+// A company is fully onboarded when all four conditions are met:
+function checkOnboardingComplete(company) {
+  return (
+    !!company.baseCurrency &&
+    !!company.payrollSettings?.payFrequency &&
+    !!company.bankDetails?.accountNumber &&
+    !!company.isVerified &&
+    !!company.address?.street && 
+    !!company.address?.city &&    
+    !!company.address?.state 
+  );
+}
+
 /**
  * @route   GET /api/companies/profile
  * @desc    Get company profile (BR-001)
  * @access  Private
  */
-router.get("/profile", async (req, res) => {
+router.get("/profile", protect , async (req, res) => {
   try {
     const company = await Company.findById(req.user.company).lean();
 
@@ -78,6 +93,7 @@ router.put("/profile", isFounderOrAdmin, async (req, res) => {
       }
     });
 
+    company.onboardingCompleted = checkOnboardingComplete(company);
     await company.save();
 
     // Log audit
@@ -117,7 +133,7 @@ router.put("/profile", isFounderOrAdmin, async (req, res) => {
  * @desc    Update company settings (payroll, etc.)
  * @access  Private (Founder, Admin)
  */
-router.put("/settings", isFounderOrAdmin, async (req, res) => {
+router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
   try {
     const companyId = req.user.company;
     const userId = req.user.id;
@@ -140,15 +156,19 @@ router.put("/settings", isFounderOrAdmin, async (req, res) => {
     // Update settings
     if (payrollSettings) {
       company.payrollSettings = {
-        ...company.payrollSettings,
+        ...company.payrollSettings.toObject(),
         ...payrollSettings,
       };
+      // Tell Mongoose this nested object changed — it doesn't always detect spread updates
+      company.markModified("payrollSettings");
+
     }
 
     if (baseCurrency) {
       company.baseCurrency = baseCurrency;
     }
 
+    company.onboardingCompleted = checkOnboardingComplete(company);
     await company.save();
 
     // Log audit
@@ -178,6 +198,7 @@ router.put("/settings", isFounderOrAdmin, async (req, res) => {
       data: {
         payrollSettings: company.payrollSettings,
         baseCurrency: company.baseCurrency,
+        onboardingCompleted: company.onboardingCompleted,
       },
     });
   } catch (error) {

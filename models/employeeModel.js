@@ -9,16 +9,19 @@ const employeeSchema = new mongoose.Schema({
   company: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company',
-    required: true
+    required: true,
+    index: true
   },
   employeeId: {
     type: String,
-    required: true,
-    unique: true
+    index: true, 
+    unique: true,
+    sparse: true
   },
   department: {
     type: String,
-    trim: true
+    trim: true,
+    index: true
   },
   position: {
     type: String,
@@ -27,12 +30,14 @@ const employeeSchema = new mongoose.Schema({
   },
   employmentType: {
     type: String,
-    enum: ['full-time', 'part-time', 'contract', 'intern'],
-    default: 'full-time'
+    enum: ['full-time', 'part-time', 'contract'],
+    default: 'full-time',
+    index: true
   },
   startDate: {
     type: Date,
-    required: [true, 'Start date is required']
+    required: [true, 'Start date is required'],
+    index: true
   },
   endDate: {
     type: Date
@@ -50,13 +55,16 @@ const employeeSchema = new mongoose.Schema({
     },
     payFrequency: {
       type: String,
-      enum: ['monthly', 'bi-weekly', 'weekly', 'hourly'],
+      enum: ['monthly', 'bi-weekly', 'weekly'],
       default: 'monthly'
     }
   },
   bankDetails: {
     bankName: String,
-    accountNumber: String,
+    accountNumber: {
+      type: String,
+      match: [/^\d{10}$/, 'Account number must be exactly 10 digits']
+    },
     accountName: String
   },
   taxInformation: {
@@ -74,7 +82,8 @@ const employeeSchema = new mongoose.Schema({
   },
   isActive: {
     type: Boolean,
-    default: true
+    default: true,
+    index: true
   },
   terminationDate: Date,
   terminationReason: String
@@ -83,13 +92,12 @@ const employeeSchema = new mongoose.Schema({
 });
 
 // Generate unique employee ID
-employeeSchema.pre('save', async function(next) {
+employeeSchema.pre("save", function (next) {
   if (this.isNew && !this.employeeId) {
-    const company = await mongoose.model('Company').findById(this.company);
-    const count = await this.constructor.countDocuments({ company: this.company });
-    this.employeeId = `${company.name.substring(0, 3).toUpperCase()}-${String(count + 1).padStart(4, '0')}`;
+    this.employeeId = `EMP-${this._id.toString().slice(-6).toUpperCase()}`;
   }
   next();
 });
+
 
 export default mongoose.model("Employee", employeeSchema);

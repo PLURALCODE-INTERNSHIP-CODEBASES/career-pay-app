@@ -9,7 +9,7 @@ const auditSchema = new mongoose.Schema(
       index: true,
     },
 
-    User: {
+    user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
@@ -23,8 +23,10 @@ const auditSchema = new mongoose.Schema(
         "user_login",
         "user_logout",
         "user_registration",
+        "user_profile_updated",
         "password_change",
         "password_reset",
+        "password_reset_expired_token",
 
         // Company Management
         "company_created",
@@ -40,7 +42,7 @@ const auditSchema = new mongoose.Schema(
 
         // Payroll Operations
         "payroll_created",
-        "payroll_acalculated",
+        "payroll_calculated",
         "payroll_approved",
         "payroll_processed",
         "payroll_completed",
@@ -121,7 +123,7 @@ const auditSchema = new mongoose.Schema(
       after: mongoose.Schema.Types.Mixed,
     },
 
-    ipAdress: {
+    ipAddress: {
       type: String,
     },
 
@@ -163,9 +165,9 @@ auditSchema.index({ resourceType: 1, resourceId: 1 });
 auditSchema.index({ createdAt: -1 });
 
 // Create audit log
-auditSchema.statics.log = async function (auditData) {
+auditSchema.statics.log = async function (auditData, options = {}) {
   try {
-    return await this.create(auditData);
+    return await this.create([auditData], options);
   } catch (error) {
     console.error("Audit log creation failed:", error);
   }

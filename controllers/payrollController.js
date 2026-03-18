@@ -1,3 +1,4 @@
+import Employee from "../models/employeeModel.js"
 import payrollService from "../services/payrollService.js";
 import taxCalculationService from "../services/taxCalculationService.js";
 
@@ -26,7 +27,26 @@ class PayrollController {
         });
       }
 
-      const payroll = await payrollService.createPayroll(
+      // validate year is realistic — BRD PAY-004
+      const currentYear = new Date().getFullYear();
+      if (year < 2000 || year > currentYear) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid year. Must be between 2000 and ${currentYear}`,
+        });
+      }
+
+      // cannot create payroll for a future month — BRD PAY-005
+      const currentMonth = new Date().getMonth() + 1; // getMonth() is 0-indexed
+      if (year > currentYear || (year === currentYear && month > currentMonth)) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot create payroll for future months",
+        });
+      }
+ 
+
+      const { payroll, bankWarning } = await payrollService.createPayroll(
         companyId,
         month,
         year,
@@ -36,6 +56,8 @@ class PayrollController {
       res.status(201).json({
         success: true,
         message: "Payroll created successfully",
+        // include bank warning if company has no bank details — BRD Check 6
+        ...(bankWarning && { warning: bankWarning }),
         data: payroll,
       });
     } catch (error) {
@@ -221,12 +243,12 @@ class PayrollController {
 
       // If employee, can only view their own payslip
       if (req.user.role === "employee") {
-        const employee = await Employee.findOne({
+        const employeeRecord = await Employee.findOne({
           user: req.user.id,
           company: companyId,
         });
 
-        if (!employee || employee._id.toString() !== employeeId) {
+        if (!employeeRecord || employeeRecord._id.toString() !== employeeId) {
           return res.status(403).json({
             success: false,
             message: "You can only view your own payslip",
@@ -386,12 +408,13 @@ class PayrollController {
 
       // If no payroll exists, create a draft
       if (!payroll || payroll.length === 0) {
-        payroll = await payrollService.createPayroll(
+        const result = await payrollService.createPayroll(
           companyId,
           month,
           year,
           userId
         );
+        payroll = result.payroll;
       } else {
         payroll = payroll[0];
       }

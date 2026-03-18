@@ -56,7 +56,7 @@ export const protect = async (req, res, next) => {
     }
 
     // Check if user changed password after token was issued
-    if (user.changedPasswordAfter(decoded.iat)) {
+    if (decoded.iat && user.changedPasswordAfter(decoded.iat)) {
       return res.status(401).json({
         success: false,
         message: "Password recently changed. Please login again",
@@ -236,7 +236,7 @@ export const checkSubscription = async (req, res, next) => {
   try {
     const companyId = req.user.company;
 
-    const company = await Company.findById(companyId).select("subscription");
+    const company = await company.findById(companyId).select("subscription");
 
     if (!company) {
       return res.status(404).json({

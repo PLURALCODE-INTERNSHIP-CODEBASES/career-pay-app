@@ -7,6 +7,13 @@ const payrollItemSchema = new mongoose.Schema({
     required: true,
   },
 
+  // snapshot of base salary at time of payroll — BRD 3.4
+  baseSalary: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+
   grossSalary: {
     type: Number,
     required: true,
@@ -15,7 +22,7 @@ const payrollItemSchema = new mongoose.Schema({
 
   deductions: {
     tax: { type: Number, default: 0 },
-    pension: { type: Number, dfault: 0 },
+    pension: { type: Number, default: 0 },
     nhf: { type: Number, default: 0 },
     otherDeductions: [
       {
@@ -31,7 +38,7 @@ const payrollItemSchema = new mongoose.Schema({
     allowances: [
       {
         name: String,
-        ammount: Number,
+        amount: Number,
         description: String,
       },
     ],
@@ -46,11 +53,6 @@ const payrollItemSchema = new mongoose.Schema({
   netSalary: {
     type: Number,
     required: true,
-  },
-  currency: {
-    type: String,
-    enum: ["NGN", "USD"],
-    default: "NGN",
   },
 
   paymentStatus: {
@@ -70,6 +72,12 @@ const payrollSchema = new mongoose.Schema(
       required: true,
     },
 
+    currency: {
+      type: String,
+      enum: ["NGN", "USD"],
+      default: "NGN",
+    },
+
     payrollPeriod: {
       month: {
         type: Number,
@@ -87,6 +95,7 @@ const payrollSchema = new mongoose.Schema(
     summary: {
       totalGross: { type: Number, default: 0 },
       totalDeductions: { type: Number, default: 0 },
+      totalAdditions: { type: Number, default: 0 },
       totalNet: { type: Number, default: 0 },
       totalEmployerContributions: { type: Number, default: 0 },
       totalEmployees: { type: Number, default: 0 },
@@ -104,6 +113,11 @@ const payrollSchema = new mongoose.Schema(
       ],
       default: "draft",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
 
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -112,12 +126,12 @@ const payrollSchema = new mongoose.Schema(
 
     approvedAt: Date,
 
-    proccesedBy: {
+    processedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
 
-    proccesedAt: Date,
+    processedAt: Date,
 
     financingUsed: {
       type: mongoose.Schema.Types.ObjectId,
@@ -134,7 +148,7 @@ const payrollSchema = new mongoose.Schema(
 
 payrollSchema.index(
   {
-    compamy: 1,
+    company: 1,
     "payrollPeriod.month": 1,
     "payrollPeriod.year": 1,
   },

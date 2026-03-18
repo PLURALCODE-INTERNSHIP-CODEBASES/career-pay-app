@@ -45,10 +45,23 @@ const financingSchema = new mongoose.Schema(
       default: Date.now,
     },
 
-    requestedAmounted: {
+    requestedAmount: {
       type: Number,
       required: true,
-      mmin: 0,
+      min: 0,
+    },
+    creditScore: {
+      type: Number,
+      min: 0,
+      max: 100
+    },
+    riskMultiplier: {
+      type: Number,
+      min: 0.5, 
+      max: 1.0
+    },
+    maxCreditLimit: {
+      type: Number
     },
 
     currency: {
@@ -61,6 +74,15 @@ const financingSchema = new mongoose.Schema(
       type: String,
       enum: ["payroll", "operations", "growth", "other"],
       default: "payroll",
+    },
+    repaymentTermDays: {
+      type: Number,
+      enum: [30, 60, 90]
+    },
+    repaymentFrequency: {
+      type: String,
+      enum:[ 'weekly', 'bi-weekly', 'monthly'],
+      default: 'monthly'
     },
 
     status: {
@@ -77,22 +99,20 @@ const financingSchema = new mongoose.Schema(
       ],
       default: "pending",
     },
-
+    approvedAmount: Number,
     interestRate: {
       type: Number,
-      required: true,
-      min: 1,
+      min: 0,
       max: 24,
+      default: 0
     },
-
-    repaymentFrequency: {
-      type: String,
-      enum: ["weekly", "bi_weekly", "monthly"],
-      default: "monthly",
-    },
-
+    serviceCharge: Number, // approvedAmount × 0.15
+    disbursedToWallet: Number, // approvedAmount - serviceCharge
     disbursementDate: Date,
     disbursementReference: String,
+
+    dueDate: Date,   // disbursementDate + repaymentTermDays
+    graceCutoff: Date,   // dueDate + grace period days
     totalRepaymentAmount: Number,
     amountRepaid: {
       type: Number,
@@ -139,9 +159,11 @@ const financingSchema = new mongoose.Schema(
 
 // Calculating oustanding balance
 financingSchema.pre("save", function (next) {
-  if (this.approvedAmount && this.amountRepaid !== undefined) {
-    this.outstandingBalance =
-      (this.totalRepaymentAmount || this.approvedAmount) - this.amountRepaid;
+  if (this.approvedAmount != null && this.amountRepaid != null) {
+    const interest = this.interestRate
+      ? (this.approvedAmount * this.interestRate) / 100 : 0;
+    this.outstandingBalance = Math.max( 0,this.approvedAmount + interest - this.amountRepaid
+       );
   }
   next();
 });
