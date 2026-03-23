@@ -359,7 +359,12 @@ class EquityController {
       if (grantType) query.grantType = grantType;
       if (employeeId) query.employee = employeeId;
 
-      const grants = await EquityGrant.find(query)
+      const page = Math.max(parseInt(req.query.page) || 1, 1);
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+      const skip = (page - 1) * limit;
+
+      const [grants, total] = await Promise.all([
+        EquityGrant.find(query)
         .populate("employee", "user employeeId position department")
         .populate({
           path: "employee",
@@ -369,7 +374,12 @@ class EquityController {
           },
         })
         .sort({ grantDate: -1 })
-        .lean();
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      EquityGrant.countDocuments(query)
+      ]);
+
 
       // Add calculated fields
       const grantsWithCalculations = grants.map((grant) => ({
@@ -388,6 +398,12 @@ class EquityController {
       res.status(200).json({
         success: true,
         data: grantsWithCalculations,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        }
       });
     } catch (error) {
       console.error("Get equity grants error:", error);

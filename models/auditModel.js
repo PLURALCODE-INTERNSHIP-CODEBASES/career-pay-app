@@ -63,6 +63,7 @@ const auditSchema = new mongoose.Schema(
         // Financing
         "financing_applied",
         "financing_approved",
+        "financing_defaulted",
         "financing_rejected",
         "financing_disbursed",
         "repayment_made",

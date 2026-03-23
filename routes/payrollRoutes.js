@@ -10,14 +10,16 @@ router.use(requireVerified);
 
 /**
  * @route   POST /api/payroll/tax-estimate
- * @desc    Calculate tax estimate
+ * @desc    Calculate tax estimate for a given annual income
+ *          CALCULATION ONLY — does not save or modify any data
  * @access  Private
  */
 router.post("/tax-estimate", payrollController.getTaxEstimate);
 
 /**
  * @route   POST /api/payroll/tax-breakdown
- * @desc    Get tax breakdown by band
+ * @desc    Get detailed tax breakdown by band for a given annual gross
+ *          CALCULATION ONLY — does not save or modify any data
  * @access  Private
  */
 router.post("/tax-breakdown", payrollController.getTaxBreakdown);

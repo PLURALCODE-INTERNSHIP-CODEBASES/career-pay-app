@@ -152,7 +152,7 @@ class DashboardController {
           employeeCount,
           recentHires,
           upcomingVesting,
-          currentPayroll: currentPayroll?.[0] || null,
+          currentPayroll: currentPayroll?.data?.[0] || null,
         },
       });
     } catch (error) {
@@ -216,6 +216,8 @@ class DashboardController {
         const item = payroll.payrollItems.find(
           (i) => i.employee.toString() === employee._id.toString()
         );
+      if (!item) return null;
+
         return {
           month: payroll.payrollPeriod.month,
           year: payroll.payrollPeriod.year,
@@ -223,9 +225,8 @@ class DashboardController {
           grossSalary: item.grossSalary,
           currency: item.currency,
         };
-      if (!item) return null;
 
-      });
+      }).filter(Boolean); // filter out any nulls
 
       res.status(200).json({
         success: true,
@@ -346,7 +347,7 @@ class DashboardController {
   async getCriticalActivities(req, res) {
     try {
       const companyId = req.user.company;
-      const limit = parseInt(req.query.limit) || 20;
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
       const activities = await auditService.getCriticalActivities(
         companyId,
@@ -373,7 +374,7 @@ class DashboardController {
   async getFailedActivities(req, res) {
     try {
       const companyId = req.user.company;
-      const limit = parseInt(req.query.limit) || 20;
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
       const activities = await auditService.getFailedActivities(
         companyId,

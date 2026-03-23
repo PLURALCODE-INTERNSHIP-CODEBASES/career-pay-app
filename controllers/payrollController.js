@@ -11,7 +11,8 @@ class PayrollController {
     try {
       const companyId = req.user.company;
       const userId = req.user.id;
-      const { month, year } = req.body;
+      const month = parseInt(req.body.month);
+      const year = parseInt(req.body.year);
 
       if (!month || !year) {
         return res.status(400).json({
@@ -212,16 +213,19 @@ class PayrollController {
         year: req.query.year,
         month: req.query.month,
         status: req.query.status,
+        page: req.query.page,
+        limit: req.query.limit
       };
 
-      const payrolls = await payrollService.getCompanyPayrolls(
+      const result = await payrollService.getCompanyPayrolls(
         companyId,
         filters
       );
 
       res.status(200).json({
         success: true,
-        data: payrolls,
+        data: result.data,
+        pagination: result.pagination
       });
     } catch (error) {
       console.error("Get payrolls error:", error);
@@ -312,8 +316,7 @@ class PayrollController {
   async getPayrollStats(req, res) {
     try {
       const companyId = req.user.company;
-      const year = req.query.year || new Date().getFullYear();
-
+      const year = parseInt(req.query.year) || new Date().getFullYear();
       const stats = await payrollService.getPayrollStats(companyId, year);
 
       res.status(200).json({
@@ -331,6 +334,7 @@ class PayrollController {
 
   /**
    * Calculate tax estimate for an amount
+   * CALCULATION ONLY — reads input, returns estimate, saves nothing to database
    * POST /api/payroll/tax-estimate
    */
   async getTaxEstimate(req, res) {
@@ -361,6 +365,7 @@ class PayrollController {
 
   /**
    * Get tax breakdown by band
+   * CALCULATION ONLY — reads input, returns breakdown, saves nothing to database
    * POST /api/payroll/tax-breakdown
    */
   async getTaxBreakdown(req, res) {
@@ -401,22 +406,23 @@ class PayrollController {
       const month = currentDate.getMonth() + 1;
       const year = currentDate.getFullYear();
 
-      let payroll = await payrollService.getCompanyPayrolls(companyId, {
+      const result = await payrollService.getCompanyPayrolls(companyId, {
         month,
         year,
       });
 
       // If no payroll exists, create a draft
-      if (!payroll || payroll.length === 0) {
-        const result = await payrollService.createPayroll(
+      let payroll;
+      if (!result.data || result.data.length === 0) {
+        const created = await payrollService.createPayroll(
           companyId,
           month,
           year,
           userId
         );
-        payroll = result.payroll;
+        payroll = created.payroll;
       } else {
-        payroll = payroll[0];
+        payroll = result.data[0];
       }
 
       res.status(200).json({

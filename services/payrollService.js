@@ -185,7 +185,6 @@ class PayrollService {
             nsitf: calculation.employerContributions.nsitf,
           },
           netSalary: calculation.netSalary,
-          currency: calculation.currency,
           paymentStatus: "pending",
         });
       }
@@ -502,24 +501,35 @@ class PayrollService {
   async getCompanyPayrolls(companyId, filters = {}) {
     try {
       const query = { company: companyId };
-
-      // Apply filters
-      if (filters.year) {
-        query["payrollPeriod.year"] = parseInt(filters.year);
-      }
-      if (filters.month) {
-        query["payrollPeriod.month"] = parseInt(filters.month);
-      }
-      if (filters.status) {
-        query.status = filters.status;
-      }
-
-      const payrolls = await Payroll.find(query)
-        .sort({ "payrollPeriod.year": -1, "payrollPeriod.month": -1 })
-        .select("payrollPeriod summary status approvedAt processedAt createdBy")
-        .lean();
-
-      return payrolls;
+ 
+      if (filters.year) query["payrollPeriod.year"] = parseInt(filters.year);
+      if (filters.month) query["payrollPeriod.month"] = parseInt(filters.month);
+      if (filters.status) query.status = filters.status;
+ 
+      // Pagination — consistent with employee module (max 100 per page)
+      const page = parseInt(filters.page) || 1;
+      const limit = Math.min(parseInt(filters.limit) || 20, 100);
+      const skip = (page - 1) * limit;
+ 
+      const [payrolls, total] = await Promise.all([
+        Payroll.find(query)
+          .sort({ "payrollPeriod.year": -1, "payrollPeriod.month": -1 })
+          .select("payrollPeriod summary status currency approvedAt processedAt createdBy")
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Payroll.countDocuments(query),
+      ]);
+ 
+      return {
+        data: payrolls,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      };
     } catch (error) {
       throw error;
     }
@@ -614,7 +624,7 @@ class PayrollService {
         pension: item.deductions.pension,
         nhf: item.deductions.nhf,
         netSalary: item.netSalary,
-        currency: item.currency,
+        currency: payroll.currency,
         paymentStatus: item.paymentStatus,
         paymentReference: item.paymentReference,
       }));

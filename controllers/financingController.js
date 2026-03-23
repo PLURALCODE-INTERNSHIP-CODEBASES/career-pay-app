@@ -140,10 +140,12 @@ class FinancingController {
         requestedAmount,
         currency,
         purpose,
-        repaymentTermDays,
         repaymentFrequency,
         companyDetails,
       } = req.body;
+
+      // Parsed separately — must be a number for the includes() check to work
+      const repaymentTermDays = parseInt(req.body.repaymentTermDays);
 
       // Validate required fields
       if (!requestedAmount || !repaymentTermDays) {
@@ -290,13 +292,29 @@ class FinancingController {
       const query = { company: companyId };
       if (status) query.status = status;
 
-      const financings = await Financing.find(query)
-        .sort({ applicationDate: -1 })
-        .lean();
+      // Pagination — consistent with other modules (max 100 per page)
+      const page = Math.max(parseInt(req.query.page) || 1, 1);
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+      const skip = (page - 1) * limit;
+
+      const [financings, total] = await Promise.all([
+        Financing.find(query)
+          .sort({ applicationDate: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Financing.countDocuments(query),
+      ]);
 
       res.status(200).json({
         success: true,
         data: financings,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        }
       });
     } catch (error) {
       console.error("Get company financing error:", error);
@@ -438,7 +456,9 @@ class FinancingController {
         company: companyId,
         user: userId,
         action:
-          status === "approved" ? "financing_approved" : "financing_rejected",
+          status === "approved" ? "financing_approved" :
+          status === "defaulted" ? "financing_defaulted" :
+          "financing_rejected",
         module: "financing",
         resourceType: "financing",
         resourceId: financing._id,
