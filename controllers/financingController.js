@@ -93,20 +93,24 @@ function getRepaymentDates(termDays, disbursementDate = new Date()) {
 function generateRepaymentSchedule(
   approvedAmount,
   totalRepaymentAmount,
-  repaymentTermMonths,
+  repaymentTermDays,
   repaymentFrequency
 ) {
   const schedule = [];
 
+  // Convert days to equivalent months for payment interval calculation
+  // 30 days = 1 month, 60 days = 2 months, 90 days = 3 months
+  const monthsEquivalent = repaymentTermDays / 30;
+
   // Determine number of payments
   let numberOfPayments;
 
-  if (repaymentFrequency === "monthly") {
-    numberOfPayments = repaymentTermMonths;
-  } else if (repaymentFrequency === "weekly") {
-    numberOfPayments = repaymentTermMonths * 4;
+  if (repaymentFrequency === "weekly") {
+    numberOfPayments = monthsEquivalent * 4;
+  } else if (repaymentFrequency === "bi-weekly") {
+    numberOfPayments = monthsEquivalent * 2;
   } else {
-    numberOfPayments = repaymentTermMonths; // default
+    numberOfPayments = monthsEquivalent; // default
   }
 
   const installmentAmount = totalRepaymentAmount / numberOfPayments;
@@ -114,7 +118,7 @@ function generateRepaymentSchedule(
   for (let i = 1; i <= numberOfPayments; i++) {
     schedule.push({
       installmentNumber: i,
-      amount: installmentAmount,
+      amount: Math.round(installmentAmount),
       status: "pending",
     });
   }
@@ -136,13 +140,13 @@ class FinancingController {
         requestedAmount,
         currency,
         purpose,
-        repaymentTermMonths,
+        repaymentTermDays,
         repaymentFrequency,
         companyDetails,
       } = req.body;
 
       // Validate required fields
-      if (!requestedAmount || !repaymentTermMonths) {
+      if (!requestedAmount || !repaymentTermDays) {
         return res.status(400).json({
           success: false,
           message: "Requested amount and repayment term are required",
@@ -216,7 +220,6 @@ class FinancingController {
         currency: currency || company.baseCurrency || "NGN",
         purpose: purpose || "payroll",
         repaymentTermDays,
-        repaymentTermMonths,
         repaymentFrequency: repaymentFrequency || "monthly",
         status: decision, //approved or under review
         creditScore: score,
@@ -415,11 +418,17 @@ class FinancingController {
         financing.repaymentSchedule = generateRepaymentSchedule(
           financing.approvedAmount,
           financing.totalRepaymentAmount,
-          financing.repaymentTermMonths,
+          financing.repaymentTermDays,
           financing.repaymentFrequency
         );
       } else if (status === "rejected") {
         financing.rejectionReason = rejectionReason;
+      } else if (status === "defaulted") {
+        // ADDED: set hasOutstandingDefault on company when loan is manually marked defaulted
+        // This blocks the company from applying for new financing — BRD eligibility check 4
+        await Company.findByIdAndUpdate(financing.company, {
+          hasOutstandingDefault: true,
+        });
       }
 
       await financing.save();
@@ -521,7 +530,7 @@ class FinancingController {
         details: {
           approvedAmount: financing.approvedAmount,
           serviceCharge,
-          disbursedWallet,
+          disbursedToWallet,
           dueDate,
           reference: financing.disbursementReference,
         },
@@ -591,7 +600,7 @@ class FinancingController {
 
       // Update repayment
       financing.amountRepaid += amount;
-      financing.outstandingBalance -= amount;
+
 
       // Mark schedule items as paid
       let remainingAmount = amount;
@@ -612,9 +621,14 @@ class FinancingController {
       }
 
       // Check if fully paid
-      if (financing.outstandingBalance <= 0) {
+      if (financing.amountRepaid >= financing.totalRepaymentAmount) {
         financing.status = "completed";
+
+        await Company.findByIdAndUpdate(companyId, {
+          hasOutstandingDefault: false,
+        });
       }
+      
 
       await financing.save();
 
@@ -712,53 +726,7 @@ class FinancingController {
     }
   }
 
-  /**
-   * Helper: Generate repayment schedule
-   */
-  generateRepaymentSchedule(principal, totalAmount, termMonths, frequency) {
-    const schedule = [];
-    const today = new Date();
 
-    let intervalsPerMonth;
-    switch (frequency) {
-      case "weekly":
-        intervalsPerMonth = 4;
-        break;
-      case "bi-weekly":
-        intervalsPerMonth = 2;
-        break;
-      case "monthly":
-      default:
-        intervalsPerMonth = 1;
-    }
-
-    const totalIntervals = termMonths * intervalsPerMonth;
-    const amountPerInterval = totalAmount / totalIntervals;
-    const principalPerInterval = principal / totalIntervals;
-    const interestPerInterval = (totalAmount - principal) / totalIntervals;
-
-    for (let i = 1; i <= totalIntervals; i++) {
-      const dueDate = new Date(today);
-
-      if (frequency === "weekly") {
-        dueDate.setDate(dueDate.getDate() + i * 7);
-      } else if (frequency === "bi-weekly") {
-        dueDate.setDate(dueDate.getDate() + i * 14);
-      } else {
-        dueDate.setMonth(dueDate.getMonth() + i);
-      }
-
-      schedule.push({
-        dueDate,
-        amount: Math.round(amountPerInterval),
-        principal: Math.round(principalPerInterval),
-        interest: Math.round(interestPerInterval),
-        isPaid: false,
-      });
-    }
-
-    return schedule;
-  }
 }
 
 export default new FinancingController();

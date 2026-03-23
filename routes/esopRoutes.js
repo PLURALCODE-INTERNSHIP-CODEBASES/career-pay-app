@@ -1,11 +1,12 @@
 import express from "express";
 import equityController from "../controllers/equityController.js";
-import { protect, isHROrAbove, isFounderOrAdmin } from "../middlewares/authMiddleware.js";
+import { protect, isHROrAbove, isFounderOrAdmin, requireVerified, verifyEmployeeOwnership } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+router.use(requireVerified)
 
 /**
  * @route   GET /api/equity/my-equity
@@ -87,6 +88,6 @@ router.post(
  * @desc    Get employee equity information (BR-009)
  * @access  Private (Owner or HR+)
  */
-router.get("/employee/:employeeId", equityController.getEmployeeEquity);
+router.get("/employee/:employeeId",verifyEmployeeOwnership, equityController.getEmployeeEquity);
 
 export default router;

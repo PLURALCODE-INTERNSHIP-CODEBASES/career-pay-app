@@ -30,7 +30,7 @@ export const protect = async (req, res, next) => {
     // Check if user still exists
     const user = await User.findById(decoded.id)
       .select("-password")
-      .populate("company", "name email isActive");
+      .populate("company", "name email isActive isVerified");
 
     if (!user) {
       return res.status(401).json({
@@ -72,6 +72,7 @@ export const protect = async (req, res, next) => {
       role: user.role,
       company: user.company._id,
       companyName: user.company.name,
+      isVerified: user.company.isVerified,
     };
 
     next();
@@ -178,6 +179,19 @@ export const verifyEmployeeOwnership = async (req, res, next) => {
       message: "Failed to verify access",
     });
   }
+};
+
+/**
+ * blocks access to protected features until company email is verified
+ */
+export const requireVerified = (req, res, next) => {
+  if (!req.user.isVerified) {
+    return res.status(403).json({
+      success: false,
+      message: "Please verify your email address to continue.",
+    });
+  }
+  next();
 };
 
 /**

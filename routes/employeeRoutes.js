@@ -5,6 +5,7 @@ import {
   isHROrAbove,
   isFounderOrAdmin,
   verifyEmployeeOwnership,
+  requireVerified,
 } from "../middlewares/authMiddleware.js";
 import { validatePagination } from "../middlewares/validator.js";
 
@@ -12,6 +13,7 @@ const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+router.use(requireVerified)
 
 /**
  * @route   POST /api/employees

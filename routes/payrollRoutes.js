@@ -1,11 +1,12 @@
 import express from "express";
 import payrollController from "../controllers/payrollController.js";
-import { protect, isHROrAbove, isFounderOrAdmin } from "../middlewares/authMiddleware.js";
+import { protect, isHROrAbove, isFounderOrAdmin, requireVerified } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+router.use(requireVerified);
 
 /**
  * @route   POST /api/payroll/tax-estimate

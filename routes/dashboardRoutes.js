@@ -1,12 +1,13 @@
 import express from "express";
 import dashboardController from "../controllers/dashboardController.js";
-import { protect, isFounderOrAdmin, isHROrAbove } from "../middlewares/authMiddleware.js";
+import { protect, isFounderOrAdmin, isHROrAbove, requireVerified } from "../middlewares/authMiddleware.js";
 import { validatePagination } from "../middlewares/validator.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+router.use(requireVerified)
 
 /**
  * @route   GET /api/dashboard/admin

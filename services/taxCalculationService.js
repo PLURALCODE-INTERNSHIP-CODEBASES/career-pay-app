@@ -3,18 +3,18 @@ class TaxCalculationService {
   // These are configurable and should be updated yearly
   TAX_BANDS = [
     { min: 0, max: 800000, rate: 0 },
-    { min: 800001, max: 3000000, rate: 15 },
-    { min: 3000001, max: 12000000, rate: 18 },
-    { min: 12000001, max: 25000000, rate: 21 },
-    { min: 25000001, max: 50000000, rate: 23 },
-    { min: 50000001, max: Infinity, rate: 25 },
+    { min: 800000, max: 3000000, rate: 15 },
+    { min: 3000000, max: 12000000, rate: 18 },
+    { min: 12000000, max: 25000000, rate: 21 },
+    { min: 25000000, max: 50000000, rate: 23 },
+    { min: 50000000, max: Infinity, rate: 25 },
   ];
 
   // Constants
   PENSION_EMPLOYEE_RATE = 0.08; // 8%
   PENSION_EMPLOYER_RATE = 0.1; // 10%
   NHF_RATE = 0.025; // 2.5%
-  NHF_MINIMUM_SALARY = 3000; // Monthly minimum to qualify for NHF
+  NHF_MINIMUM_SALARY = 7000; // Monthly minimum to qualify for NHF
   ITF_RATE = 0.01; // 1% (Industrial Training Fund)
   NSITF_RATE = 0.01; // 1% (NSITF - 1% of total payroll)
 

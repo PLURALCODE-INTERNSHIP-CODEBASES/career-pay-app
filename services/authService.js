@@ -757,63 +757,63 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
   }
 
   // Resend verification email
-async resendVerificationEmail(companyId) {
-  const company = await Company.findById(companyId).select(
-    "+emailVerificationToken +emailVerificationExpires"
-  );
-
-  if (!company) {
-    throw new Error("Company not found");
-  }
-
-  // If already verified, no need to resend
-  if (company.isVerified) {
-    const error = new Error("This account is already verified");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  // Find the founder user to send the email to
-  const founder = await User.findOne({
-    company: companyId,
-    role: "founder",
-  }).select("email firstName");
-
-  if (!founder) {
-    throw new Error("Founder account not found");
-  }
-
-  // Generate a fresh token — same pattern as registration
-  const verificationToken = crypto.randomBytes(32).toString("hex");
-  const hashedVerificationToken = crypto
-    .createHash("sha256")
-    .update(verificationToken)
-    .digest("hex");
-
-  // Save new token and reset the 24 hour window
-  company.emailVerificationToken = hashedVerificationToken;
-  company.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  await company.save();
-
-  // Send the email — don't block if it fails
-  try {
-    await emailService.sendVerificationEmail(
-      founder,
-      company,
-      verificationToken
+  async resendVerificationEmail(companyId) {
+    const company = await Company.findById(companyId).select(
+     "+emailVerificationToken +emailVerificationExpires"
     );
-  } catch (emailError) {
-    // Rollback token if email fails — same pattern as forgotPassword
-    company.emailVerificationToken = undefined;
-    company.emailVerificationExpires = undefined;
-    await company.save();
-    throw new Error("Failed to send verification email. Please try again.");
-  }
 
-  return {
-    message: "Verification email sent. Please check your inbox.",
-  };
-}
+    if (!company) {
+     throw new Error("Company not found");
+    }
+
+    // If already verified, no need to resend
+    if (company.isVerified) {
+      const error = new Error("This account is already verified");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Find the founder user to send the email to
+    const founder = await User.findOne({
+      company: companyId,
+      role: "founder",
+    }).select("email firstName");
+
+    if (!founder) {
+      throw new Error("Founder account not found");
+    }
+
+    // Generate a fresh token — same pattern as registration
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const hashedVerificationToken = crypto
+      .createHash("sha256")
+      .update(verificationToken)
+      .digest("hex");
+
+    // Save new token and reset the 24 hour window
+    company.emailVerificationToken = hashedVerificationToken;
+    company.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await company.save();
+
+    // Send the email — don't block if it fails
+    try {
+      await emailService.sendVerificationEmail(
+        founder,
+        company,
+        verificationToken
+      );
+    } catch (emailError) {
+      // Rollback token if email fails — same pattern as forgotPassword
+      company.emailVerificationToken = undefined;
+      company.emailVerificationExpires = undefined;
+      await company.save();
+      throw new Error("Failed to send verification email. Please try again.");
+    }
+
+    return {
+      message: "Verification email sent. Please check your inbox.",
+    };
+  }
  
 
   // get current user profile

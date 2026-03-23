@@ -1,12 +1,13 @@
 import express from "express";
 import Company from "../models/companyModel.js";
-import { protect, isFounderOrAdmin } from "../middlewares/authMiddleware.js";
+import { protect, isFounderOrAdmin, requireVerified } from "../middlewares/authMiddleware.js";
 import Audit from "../models/auditModel.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+router.use(requireVerified)
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 // Re-evaluates whether a company has completed onboarding.

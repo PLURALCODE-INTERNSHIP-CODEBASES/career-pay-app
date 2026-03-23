@@ -1,11 +1,12 @@
 import express from "express";
 import financingController from "../controllers/financingController.js";
-import { protect, isFounderOrAdmin } from "../middlewares/authMiddleware.js";
+import { protect, isFounderOrAdmin, requireVerified } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+router.use(requireVerified);
 
 /**
  * @route   POST /api/financing/apply
