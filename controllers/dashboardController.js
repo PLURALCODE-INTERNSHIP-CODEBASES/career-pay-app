@@ -206,7 +206,7 @@ class DashboardController {
         "payrollItems.employee": employee._id,
         createdAt: { $gte: threeMonthsAgo },
       })
-        .select("payrollPeriod payrollItems")
+        .select("payrollPeriod payrollItems currency")
         .sort({ "payrollPeriod.year": -1, "payrollPeriod.month": -1 })
         .limit(3)
         .lean();
@@ -223,7 +223,7 @@ class DashboardController {
           year: payroll.payrollPeriod.year,
           netSalary: item.netSalary,
           grossSalary: item.grossSalary,
-          currency: item.currency,
+          currency: payroll.currency,
         };
 
       }).filter(Boolean); // filter out any nulls

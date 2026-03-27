@@ -3,7 +3,7 @@ import nodemailer from "nodemailer";
 class EmailService {
   constructor() {
     this.transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || "smtp.gmail.com",
+      host: process.env.EMAIL_HOST || "sandbox.smtp.mailtrap.io",
       port: process.env.EMAIL_PORT || 587,
       secure: false,
       family: 4,
@@ -79,7 +79,6 @@ class EmailService {
  * Token expires in 24 hours
  */
 async sendVerificationEmail(user, company, verificationToken) {
-  const verifyUrl = `${process.env.APP_URL}/verify-email?token=${verificationToken}`;
   const subject = "✅ Verify Your CareerPay Account";
 
   const html = `
@@ -91,7 +90,7 @@ async sendVerificationEmail(user, company, verificationToken) {
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
           .header { background: #4F46E5; color: white; padding: 20px; text-align: center; }
           .content { padding: 20px; background: #f9f9f9; }
-          .button { display: inline-block; padding: 12px 24px; background: #4F46E5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .otp { font-size: 48px; font-weight: bold; color: #4F46E5; text-align: center; letter-spacing: 8px; padding: 20px; background: white; border-radius: 8px; margin: 20px 0; }
           .warning { background: #FEF3C7; padding: 15px; border-left: 4px solid #F59E0B; margin: 20px 0; }
           .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
         </style>
@@ -104,17 +103,13 @@ async sendVerificationEmail(user, company, verificationToken) {
           <div class="content">
             <p>Hi ${user.firstName},</p>
             <p>Thank you for registering <strong>${company.name}</strong> on CareerPay.</p>
-            <p>Please verify your email address to activate your account:</p>
-
-            <a href="${verifyUrl}" class="button">Verify My Email</a>
-
-            <p>Or copy and paste this link in your browser:</p>
-            <p style="word-break: break-all; color: #4F46E5;">${verifyUrl}</p>
-
+            <p>Enter the code below to verify your email address:</p>
+            <div class="otp">${verificationToken}</div>
             <div class="warning">
               <p><strong>Important:</strong></p>
               <ul>
-                <li>This link expires in <strong>24 hours</strong></li>
+                <li>This code expires in <strong>24 hours</strong></li>
+                <li>Never share this code with anyone</li>
                 <li>If you did not register on CareerPay, ignore this email</li>
               </ul>
             </div>
@@ -435,7 +430,7 @@ async sendVerificationEmail(user, company, verificationToken) {
   /**
    * Send payslip email to employee
    */
-  async sendPayslipEmail(employee, payslip, pdfAttachment = null) {
+  async sendPayslipEmail(employee, payslip,currency, pdfAttachment = null) {
     const subject = `Payslip for ${this.getMonthName(payslip.payrollPeriod.month)} ${payslip.payrollPeriod.year}`;
 
     const html = `
@@ -463,10 +458,10 @@ async sendVerificationEmail(user, company, verificationToken) {
               <p>Your salary for ${this.getMonthName(payslip.payrollPeriod.month)} ${payslip.payrollPeriod.year} has been processed.</p>
               <div class="summary">
                 <h2>Payment Summary</h2>
-                <p><strong>Gross Salary:</strong> ${this.formatCurrency(payslip.grossSalary, payslip.currency)}</p>
-                <p><strong>Total Deductions:</strong> ${this.formatCurrency(payslip.deductions.tax + payslip.deductions.pension + payslip.deductions.nhf, payslip.currency)}</p>
+                <p><strong>Gross Salary:</strong> ${this.formatCurrency(payslip.grossSalary,currency)}</p>
+                <p><strong>Total Deductions:</strong> ${this.formatCurrency(payslip.deductions.tax + payslip.deductions.pension + payslip.deductions.nhf, currency)}</p>
                 <p><strong>Net Pay:</strong></p>
-                <p class="amount">${this.formatCurrency(payslip.netSalary, payslip.currency)}</p>
+                <p class="amount">${this.formatCurrency(payslip.netSalary, currency)}</p>
               </div>
               <a href="${process.env.APP_URL}/payslips" class="button">View Full Payslip</a>
               <p>Your payslip has been attached to this email as a PDF.</p>
@@ -575,7 +570,7 @@ async sendVerificationEmail(user, company, verificationToken) {
                 <h3>Loan Details:</h3>
                 <p><strong>Approved Amount:</strong> ${this.formatCurrency(financing.approvedAmount, financing.currency)}</p>
                 <p><strong>Interest Rate:</strong> ${financing.interestRate}%</p>
-                <p><strong>Repayment Term:</strong> ${financing.repaymentTermMonths} months</p>
+                <p><strong>Repayment Term:</strong> ${financing.repaymentTermDays} months</p>
                 <p><strong>Total Repayment:</strong> ${this.formatCurrency(financing.totalRepaymentAmount, financing.currency)}</p>
               </div>
               <p>Funds will be disbursed within 24-48 hours.</p>

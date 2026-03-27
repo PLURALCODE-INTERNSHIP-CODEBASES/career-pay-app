@@ -123,7 +123,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
 
     // Generate email verification otp ---
     // The raw otp goes in the email link, the hashed version is saved in the DB
-    const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationToken = crypto.randomInt(100000, 999999).toString();
     const hashedVerificationToken = crypto
       .createHash("sha256")
       .update(verificationToken)
@@ -141,7 +141,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
       await emailService.sendVerificationEmail(
         createdUser,
         createdCompany,
-        verificationToken // raw token — goes into the URL
+        verificationToken // raw otp goes to the user email
       );
     } catch (emailError) {
       console.error("Verification email failed (non-fatal):", emailError.message);
@@ -727,7 +727,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
  
     if (!company) {
       const error = new Error(
-        "Verification link is invalid or has expired. Please request a new one."
+        "Verification OTP is invalid or has expired. Please request a new one."
       );
       error.statusCode = 400;
       throw error;
@@ -786,7 +786,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
     }
 
     // Generate a fresh otp — same pattern as registration
-    const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationToken = crypto.randomInt(100000, 999999).toString();
     const hashedVerificationToken = crypto
       .createHash("sha256")
       .update(verificationToken)

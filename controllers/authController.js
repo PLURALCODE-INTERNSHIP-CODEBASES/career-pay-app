@@ -38,6 +38,13 @@ class AuthController {
       });
     }
 
+    if (!isValidNigerianPhone(company.phone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Company phone number must be in +234XXXXXXXX format",
+      });
+    }
+
     // Validate user email ---
     if (!isValidEmail(user.email)) {
       return res.status(400).json({
