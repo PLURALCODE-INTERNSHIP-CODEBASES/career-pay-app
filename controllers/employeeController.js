@@ -460,7 +460,6 @@ class EmployeeController {
       const userId = req.user.id;
       const { id } = req.params;
       const updates = req.body;
-      const role = req.user.role;
 
       const employee = await Employee.findOne({
         _id: id,
@@ -474,13 +473,7 @@ class EmployeeController {
         });
       }
 
-            // NEW: role-based field restrictions — BRD 2.4
-      // HR can update most fields but NOT salary
-      // Admin and Founder can update everything including salary
-      let allowedUpdates;
-
-      if (role === "founder" || role === "admin") {
-        allowedUpdates = [
+        const allowedUpdates = [
           "position",
           "department",
           "employmentType",
@@ -489,25 +482,6 @@ class EmployeeController {
           "taxInformation",
           "manager",
         ];
-      } else {
-        // HR — cannot touch salary
-        allowedUpdates = [
-          "position",
-          "department",
-          "employmentType",
-          "bankDetails",
-          "taxInformation",
-          "manager",
-        ];
-      }
-
-      // NEW: block HR from updating salary — BRD 2.4
-      if (role === "hr" && updates.salary !== undefined) {
-        return res.status(403).json({
-          success: false,
-          message: "HR cannot update salary. Only Admin or Founder can change salary.",
-        });
-      }
 
       // NEW: bank details validation on update — hard errors + warnings
       // firstName/lastName come from the User record — those fields live on User,

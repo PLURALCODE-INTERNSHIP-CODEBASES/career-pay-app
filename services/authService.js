@@ -71,15 +71,19 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
   try {
     session.startTransaction();
 
-    // --- 1. Check if company email already exists ---
-    const existingCompany = await Company.findOne({ email: companyData.email }).session(session);
-    if (existingCompany) throw new Error("Company email already registered");
+    const existingCompanyEmail = await Company.findOne({ email: companyData.email }).session(session);
+    if (existingCompanyEmail) throw new Error("Company email already registered");
 
-    // --- 2. Check if user email already exists ---
-    const existingUser = await User.findOne({ email: userData.email }).session(session);
-    if (existingUser) throw new Error("User email already registered");
+    const existingCompanyPhone = await Company.findOne({ phone: companyData.phone }).session(session);
+    if (existingCompanyPhone) throw new Error("Company phone already registered");
 
-    // --- 3. Create company ---
+    const existingUserEmail = await User.findOne({ email: userData.email }).session(session);
+    if (existingUserEmail) throw new Error("User email already registered");
+
+    const existingUserPhone = await User.findOne({ phone: userData.phone }).session(session);
+    if (existingUserPhone) throw new Error("User phone already registered");
+
+    // Create company ---
     const [createdCompany] = await Company.create([{
       name: companyData.name,
       email: companyData.email,
@@ -89,7 +93,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
       baseCurrency: companyData.baseCurrency || "NGN",
     }], { session });
 
-    // --- 4. Create founder user ---
+    // Create founder user ---
     const [createdUser] = await User.create([{
       email: userData.email,
       password: userData.password,
@@ -100,7 +104,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
       company: createdCompany._id,
     }], { session });
 
-    // --- 5. Create employee record for founder ---
+    // Create employee record for founder ---
     const [createdEmployee] = await Employee.create([{
       user: createdUser._id,
       company: createdCompany._id,
@@ -114,25 +118,24 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
       },
     }], { session });
 
-    // --- 7. Commit transaction ---
+    // Commit transaction ---
     await session.commitTransaction();
 
-    // --- 8. Generate email verification token ---
-    // We use crypto to generate a random token — same pattern as password reset
-    // The raw token goes in the email link, the hashed version is saved in the DB
-    const verificationToken = crypto.randomBytes(32).toString("hex");
+    // Generate email verification otp ---
+    // The raw otp goes in the email link, the hashed version is saved in the DB
+    const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
     const hashedVerificationToken = crypto
       .createHash("sha256")
       .update(verificationToken)
       .digest("hex");
 
-    // Save hashed token and expiry on the company (24 hour window)
+    // Save hashed otp and expiry on the company (24 hour window)
     await Company.findByIdAndUpdate(createdCompany._id, {
       emailVerificationToken: hashedVerificationToken,
       emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
-    // --- 9. Send verification email ---
+    // Send verification email ---
     // Don't block registration if email fails — log and continue
     try {
       await emailService.sendVerificationEmail(
@@ -144,7 +147,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
       console.error("Verification email failed (non-fatal):", emailError.message);
     }
 
-    // --- 10. Log audit after successful transaction ---
+    //  Log audit after successful transaction ---
   try {
     await Audit.log({
       company: createdCompany._id,
@@ -167,7 +170,7 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
 }
 
 
-    // --- 8. Return data and generate tokens ---
+    // Return data and generate tokens ---
     const token = this.generateToken(createdUser._id,createdCompany._id, createdUser.role, createdUser.email);
     const refreshToken = this.generateRefreshToken(createdUser._id);
 
@@ -190,17 +193,16 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
       },
       token,
       refreshToken,
-      // Tell the frontend to show a "check your email" message
       emailVerificationSent: true,
     };
   } catch (error) {
-    // --- 9. Abort transaction if something fails ---
+    //. Abort transaction if something fails ---
     if (session.inTransaction()) {
       await session.abortTransaction();
     }
     throw error;
   } finally {
-    // --- 10. End session ---
+    //  End session ---
     session.endSession();
   }
 }
@@ -783,8 +785,8 @@ async registerCompany(companyData, userData, ipAddress, userAgent) {
       throw new Error("Founder account not found");
     }
 
-    // Generate a fresh token — same pattern as registration
-    const verificationToken = crypto.randomBytes(32).toString("hex");
+    // Generate a fresh otp — same pattern as registration
+    const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
     const hashedVerificationToken = crypto
       .createHash("sha256")
       .update(verificationToken)
