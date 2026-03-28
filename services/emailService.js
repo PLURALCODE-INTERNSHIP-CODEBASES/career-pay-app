@@ -1,8 +1,10 @@
-import { Resend } from "resend";
+import * as Brevo from "@getbrevo/brevo";
 
 class EmailService {
   constructor() {
-    this.resend = new Resend(process.env.RESEND_API_KEY);
+    this.apiInstance = new Brevo.TransactionalEmailsApi();
+    this.apiInstance.authentications["apiKey"].apiKey =
+      process.env.BREVO_API_KEY;
     console.info("Email service ready");
   }
 
@@ -625,20 +627,18 @@ async sendVerificationEmail(user, company, verificationToken) {
    */
 async sendEmail(to, subject, htmlContent) {
   try {
-    const { data, error } = await this.resend.emails.send({
-      from: `${process.env.APP_NAME || "CareerPay"} <${process.env.SMTP_FROM || "onboarding@resend.dev"}>`,
-      to,
-      subject,
-      html: htmlContent,
-    });
+    const sendSmtpEmail = new Brevo.SendSmtpEmail();
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = htmlContent;
+    sendSmtpEmail.sender = {
+      name: process.env.APP_NAME || "CareerPay",
+      email: process.env.SMTP_FROM || "noreply@careerpay.ng",
+    };
+    sendSmtpEmail.to = [{ email: to }];
 
-    if (error) {
-      console.error("Email sending failed:", error);
-      return { success: false, error: error.message };
-    }
-
-    console.log("Email sent:", data.id);
-    return { success: true, messageId: data.id };
+    const data = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log("Email sent:", data.messageId);
+    return { success: true, messageId: data.messageId };
   } catch (error) {
     console.error("Email sending failed:", error);
     return { success: false, error: error.message };
