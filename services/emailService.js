@@ -629,7 +629,7 @@ async sendVerificationEmail(user, company, verificationToken) {
    */
 async sendEmail(to, subject, htmlContent) {
     try {
-      const response = await this.client.sendTransactionalEmail({
+      const response = await this.client.transactionalEmails.sendTransacEmail({
         sender: {
           name: process.env.APP_NAME || "CareerPay",
           email: process.env.SMTP_FROM || "noreply@careerpay.ng",
