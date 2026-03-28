@@ -1,10 +1,12 @@
-import * as Brevo from "@getbrevo/brevo";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const { BrevoClient } = require("@getbrevo/brevo");
 
 class EmailService {
   constructor() {
-    this.apiInstance = new Brevo.TransactionalEmailsApi();
-    this.apiInstance.authentications["apiKey"].apiKey =
-      process.env.BREVO_API_KEY;
+    this.client = new BrevoClient({
+      apiKey: process.env.BREVO_API_KEY,
+    });
     console.info("Email service ready");
   }
 
@@ -626,24 +628,25 @@ async sendVerificationEmail(user, company, verificationToken) {
    * Send email helper — used by all methods above
    */
 async sendEmail(to, subject, htmlContent) {
-  try {
-    const sendSmtpEmail = new Brevo.SendSmtpEmail();
-    sendSmtpEmail.subject = subject;
-    sendSmtpEmail.htmlContent = htmlContent;
-    sendSmtpEmail.sender = {
-      name: process.env.APP_NAME || "CareerPay",
-      email: process.env.SMTP_FROM || "noreply@careerpay.ng",
-    };
-    sendSmtpEmail.to = [{ email: to }];
+    try {
+      const response = await this.client.sendTransactionalEmail({
+        sender: {
+          name: process.env.APP_NAME || "CareerPay",
+          email: process.env.SMTP_FROM || "noreply@careerpay.ng",
+        },
+        to: [{ email: to }],
+        subject,
+        htmlContent,
+      });
 
-    const data = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
-    console.log("Email sent:", data.messageId);
-    return { success: true, messageId: data.messageId };
-  } catch (error) {
-    console.error("Email sending failed:", error);
-    return { success: false, error: error.message };
+      console.log("Email sent:", response.messageId);
+      return { success: true, messageId: response.messageId };
+    } catch (error) {
+      console.error("Email sending failed:", error);
+      return { success: false, error: error.message };
+    }
   }
-}
+
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
