@@ -1,10 +1,9 @@
 import nodemailer from "nodemailer";
-import axios from "axios";
 
 class EmailService {
   constructor() {
     this.transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || "sandbox.smtp.mailtrap.io",
+      host: process.env.EMAIL_HOST || "smtp.gmail.com",
       port: process.env.EMAIL_PORT || 587,
       secure: false,
       family: 4,
@@ -640,35 +639,24 @@ async sendVerificationEmail(user, company, verificationToken) {
   /**
    * Send email helper — used by all methods above
    */
-async sendEmail(to, subject, htmlContent, textContent) {
-  try {
-    const response = await axios.post(
-      "https://send.api.mailtrap.io/api/send",
-      {
-        from: {
-          email: "noreply@careerpay.ng",
-          name: process.env.APP_NAME || "CareerPay",
-        },
-        to: [{ email: to }],
+  async sendEmail(to, subject, htmlContent, textContent = null) {
+    try {
+      const mailOptions = {
+        from: `"${process.env.APP_NAME || "CareerPay"}" <${process.env.SMTP_FROM || process.env.EMAIL_USER}>`,
+        to,
         subject,
         html: htmlContent,
         text: textContent || this.stripHtml(htmlContent),
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.MAILTRAP_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+      };
 
-    console.log("Email sent via API", response.data);
-    return { success: true, data: response.data };
-  } catch (error) {
-    console.error("Email API failed:", error.message);
-    return { success: false };
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log("Email sent:", info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error("Email sending failed:", error);
+      return { success: false, error: error.message };
+    }
   }
-}
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
