@@ -1,25 +1,9 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 class EmailService {
   constructor() {
-    this.transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || "smtp.gmail.com",
-      port: process.env.EMAIL_PORT || 587,
-      secure: false,
-      family: 4,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    this.transporter.verify((error) => {
-      if (error) {
-        console.error("Email transporter error:", error);
-      } else {
-        console.info("Email service ready");
-      }
-    });
+    this.resend = new Resend(process.env.RESEND_API_KEY);
+    console.info("Email service ready");
   }
 
   // ─── Security Alert ──────────────────────────────────────────────────────────
@@ -639,24 +623,27 @@ async sendVerificationEmail(user, company, verificationToken) {
   /**
    * Send email helper — used by all methods above
    */
-  async sendEmail(to, subject, htmlContent, textContent = null) {
-    try {
-      const mailOptions = {
-        from: `"${process.env.APP_NAME || "CareerPay"}" <${process.env.SMTP_FROM || process.env.EMAIL_USER}>`,
-        to,
-        subject,
-        html: htmlContent,
-        text: textContent || this.stripHtml(htmlContent),
-      };
+async sendEmail(to, subject, htmlContent) {
+  try {
+    const { data, error } = await this.resend.emails.send({
+      from: `${process.env.APP_NAME || "CareerPay"} <${process.env.SMTP_FROM || "onboarding@resend.dev"}>`,
+      to,
+      subject,
+      html: htmlContent,
+    });
 
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log("Email sent:", info.messageId);
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
+    if (error) {
       console.error("Email sending failed:", error);
       return { success: false, error: error.message };
     }
+
+    console.log("Email sent:", data.id);
+    return { success: true, messageId: data.id };
+  } catch (error) {
+    console.error("Email sending failed:", error);
+    return { success: false, error: error.message };
   }
+}
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
