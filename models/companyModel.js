@@ -82,7 +82,7 @@ const companySchema = new mongoose.Schema({
     bankName: String,
     accountNumber: String,
     accountName: String,
-    sortCode: String
+    bankCode: String
   },
   isVerified: {
     type: Boolean,

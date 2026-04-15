@@ -16,7 +16,7 @@ function checkOnboardingComplete(company) {
   return (
     !!company.baseCurrency &&
     !!company.payrollSettings?.payFrequency &&
-    !!company.bankDetails?.accountNumber &&
+    !!company.bankDetails &&
     !!company.isVerified &&
     !!company.address?.street && 
     !!company.address?.city &&    
@@ -138,7 +138,7 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
   try {
     const companyId = req.user.company;
     const userId = req.user.id;
-    const { payrollSettings, baseCurrency } = req.body;
+    const { payrollSettings, baseCurrency, bankDetails } = req.body;
 
     const company = await Company.findById(companyId);
 
@@ -152,9 +152,18 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
     const before = {
       payrollSettings: company.payrollSettings,
       baseCurrency: company.baseCurrency,
+      bankDetails: company.bankDetails,
     };
 
     // Update settings
+    if (bankDetails) {
+      company.bankDetails = {
+        ...company.bankDetails,
+        ...bankDetails,
+      };
+
+      company.markModified("bankDetails");
+    }
     if (payrollSettings) {
       company.payrollSettings = {
         ...company.payrollSettings.toObject(),
@@ -185,6 +194,7 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
         after: {
           payrollSettings: company.payrollSettings,
           baseCurrency: company.baseCurrency,
+          bankDetails: company.bankDetails,
         },
       },
       ipAddress: req.ip,
@@ -199,6 +209,7 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
       data: {
         payrollSettings: company.payrollSettings,
         baseCurrency: company.baseCurrency,
+        bankDetails: company.bankDetails,
         onboardingCompleted: company.onboardingCompleted,
       },
     });
