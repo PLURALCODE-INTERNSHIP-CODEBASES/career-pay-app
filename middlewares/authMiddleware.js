@@ -244,40 +244,6 @@ export const checkRateLimit = (req, res, next) => {
 };
 
 /**
- * Check if company has active subscription
- */
-export const checkSubscription = async (req, res, next) => {
-  try {
-    const companyId = req.user.company;
-
-    const company = await company.findById(companyId).select("subscription");
-
-    if (!company) {
-      return res.status(404).json({
-        success: false,
-        message: "Company not found",
-      });
-    }
-
-    if (company.subscription.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message:
-          "Company subscription is not active. Please renew to continue.",
-      });
-    }
-
-    next();
-  } catch (error) {
-    console.error("Subscription check error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to verify subscription",
-    });
-  }
-};
-
-/**
  * Attach employee record to request
  * Useful for routes that need employee information
  */

@@ -16,6 +16,14 @@ router.use(protect);
 router.use(requireVerified)
 
 /**
+ * @route   GET /api/employees/banks
+ * @desc    Get list of Nigerian banks from Flutterwave
+ *          Used to populate bank dropdown when employee adds bank details
+ * @access  Private
+ */
+router.get("/banks", employeeController.getNigerianBanks);
+
+/**
  * @route   POST /api/employees
  * @desc    Create new employee (BR-002)
  * @access  Private (HR, Admin, Founder)

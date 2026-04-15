@@ -6,6 +6,8 @@ import equityRoutes from "./esopRoutes.js";
 import financingRoutes from "./financingRoutes.js";
 import dashboardRoutes from "./dashboardRoutes.js";
 import companyRoutes from "./companyRoutes.js";
+import subscriptionRoutes from "./subscriptionRoutes.js"
+import requireSubscription from "../middlewares/requireSubscription.js";
 
 const router = express.Router();
 
@@ -26,10 +28,13 @@ router.get("/health", (req, res) => {
 // Mount route modules
 router.use("/auth", authRoutes);
 router.use("/employees", employeeRoutes);
-router.use("/payroll", payrollRoutes);
-router.use("/equity", equityRoutes);
-router.use("/financing", financingRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/companies", companyRoutes);
+router.use("/subscriptions", subscriptionRoutes);
+
+// Feature-gated routes — require active subscription
+router.use("/payroll", requireSubscription("payroll"), payrollRoutes);
+router.use("/financing", requireSubscription("financing"), financingRoutes);
+router.use("/equity", requireSubscription("esop"), equityRoutes);
 
 export default router;

@@ -102,7 +102,6 @@ class TaxCalculationService {
     if (salary < this.NHF_MINIMUM_SALARY) {
       return 0;
     }
-
     return Math.round(salary * this.NHF_RATE);
   }
 
@@ -118,6 +117,98 @@ class TaxCalculationService {
       nhis: 0, // NHIS rate varies, set to 0 for now
     };
   }
+
+  /**
+   * Calculate pro-rated amount for a given monthly amount
+   * Formula: (monthlyAmount / daysInMonth) × daysWorked
+   */
+  calculateProration(monthlyAmount, daysInMonth, daysWorked) {
+    if (daysWorked >= daysInMonth) return monthlyAmount;
+    const dailyRate = monthlyAmount / daysInMonth;
+    return Math.round(dailyRate * daysWorked);
+  }
+
+  /**
+   * Determine if an employee needs pro-rating and calculate days worked
+   * Returns { isProrated, daysWorked, daysInMonth, prorationNote }
+   */
+  getProrationDetails(employee, month, year) {
+    // Total calendar days in the payroll month
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+    // Period boundaries — normalized to UTC midnight
+    const periodStart = new Date(Date.UTC(year, month - 1, 1));
+    const periodEnd = new Date(Date.UTC(year, month - 1, daysInMonth));
+
+    let workStart = periodStart;
+    let workEnd = periodEnd;
+    let isProrated = false;
+    let isLeaver = false;
+
+    // Mid-month joiner — startDate falls within this payroll month after the 1st
+    const startDate = this.normalizeToUTCMidnight(employee.startDate);
+    if (
+      startDate.getUTCFullYear() === year &&
+      startDate.getUTCMonth() + 1 === month &&
+      startDate.getUTCDate() > 1
+    ) {
+      workStart = startDate;
+      isProrated = true;
+    }
+
+    // Mid-month leaver — terminationDate falls within this payroll month
+    if (employee.terminationDate) {
+      const termDate = this.normalizeToUTCMidnight(employee.terminationDate);
+      if (
+        termDate.getUTCFullYear() === year &&
+        termDate.getUTCMonth() + 1 === month
+      ) {
+        workEnd = termDate;
+        isProrated = true;
+        isLeaver = true;
+      }
+    }
+
+    if (!isProrated) {
+      return {
+        isProrated: false,
+        daysWorked: daysInMonth,
+        daysInMonth,
+        prorationNote: null,
+      };
+    }
+
+    // Guard: workEnd must not be before workStart
+    if (workEnd < workStart) {
+      return {
+        isProrated: false,
+        daysWorked: daysInMonth,
+        daysInMonth,
+        prorationNote: null,
+      };
+    }
+
+    // Inclusive day count — minimum 1 day
+    const daysWorked = Math.max(
+      1,
+      Math.floor((workEnd - workStart) / (1000 * 60 * 60 * 24)) + 1
+    );
+
+    // Build payslip note
+    const formatDate = (d) =>
+      d.toLocaleDateString("en-NG", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+
+    const prorationNote = isLeaver
+      ? `Final salary pro-rated for ${daysWorked} days worked (${formatDate(workStart)}-${formatDate(workEnd)})`
+      : `Salary pro-rated for ${daysWorked} days worked (${formatDate(workStart)}-${formatDate(workEnd)})`;
+
+    return { isProrated, daysWorked, daysInMonth, prorationNote };
+  }
+
 
   /**
    * Complete payroll calculation for a single employee
@@ -314,6 +405,7 @@ class TaxCalculationService {
       breakdown,
     };
   }
+
 }
 
 export default new TaxCalculationService();

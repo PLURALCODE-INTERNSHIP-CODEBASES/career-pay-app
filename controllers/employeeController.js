@@ -1,22 +1,10 @@
+import axios from "axios";
 import Employee from "../models/employeeModel.js";
 import User from "../models/userModel.js";
 import Company from "../models/companyModel.js";
 import Audit from "../models/auditModel.js";
 import emailService from "../services/emailService.js";
 
-// Nigerian Banks & Validation Helpers
-// Full CBN-licensed commercial and microfinance banks list.
-// Used to validate bankDetails.bankName on create and update.
-
-const NIGERIAN_BANKS = [ "Access Bank","Citibank Nigeria","Ecobank Nigeria","Fidelity Bank",
-  "First Bank of Nigeria","First City Monument Bank","Globus Bank","Guaranty Trust Bank","Heritage Bank",
-  "Keystone Bank","Lotus Bank","Parallex Bank","Polaris Bank","Premium Trust Bank","Providus Bank",
-  "Stanbic IBTC Bank","Standard Chartered Bank","Sterling Bank","SunTrust Bank","Titan Trust Bank",
-  "Union Bank of Nigeria","United Bank for Africa","Unity Bank","Wema Bank","Zenith Bank",
-  // Microfinance & Digital Banks
-  "Kuda Bank","Opay","Palmpay","Moniepoint","VFD Microfinance Bank",
-  "Carbon","Rubies Bank","Sparkle Microfinance Bank",
-];
 
 /**
  * Validates bank details against BRD rules and your custom validations.
@@ -35,15 +23,10 @@ function validateBankDetails(bankDetails, firstName, lastName) {
       }
     }
 
-    // Bank name: must be from approved Nigerian banks list
-    if (bankDetails.bankName) {
-      const isValidBank = NIGERIAN_BANKS.some(
-        (bank) => bank.toLowerCase() === bankDetails.bankName.toLowerCase()
-      );
-      if (!isValidBank) {
-        errors.push(
-          `"${bankDetails.bankName}" is not a recognised CBN-licensed bank. Please use the approved banks list.`
-        );
+    // Bank code: must be exactly 3 digits — from Flutterwave bank list
+    if (bankDetails.bankCode) {
+      if (!/^\d{3}$/.test(bankDetails.bankCode)) {
+        errors.push("Bank code must be exactly 3 digits");
       }
     }
 
@@ -885,6 +868,44 @@ class EmployeeController {
       res.status(500).json({
         success: false,
         message: error.message || "Failed to fetch employee statistics",
+      });
+    }
+  }
+
+  /**
+   * Get list of Nigerian banks from Flutterwave
+   * GET /api/employees/banks
+   */
+  async getNigerianBanks(req, res) {
+    try {
+      const response = await axios.get(
+        "https://api.flutterwave.com/v3/banks/NG",
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+          },
+        }
+      );
+
+      if (!response.data || response.data.status !== "success") {
+        throw new Error("Failed to fetch banks from Flutterwave");
+      }
+
+      // Map to only what frontend needs — name and code
+      const banks = response.data.data.map((bank) => ({
+        name: bank.name,
+        code: bank.code,
+      }));
+
+      res.status(200).json({
+        success: true,
+        data: banks,
+      });
+    } catch (error) {
+      console.error("Get Nigerian banks error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to fetch Nigerian banks",
       });
     }
   }

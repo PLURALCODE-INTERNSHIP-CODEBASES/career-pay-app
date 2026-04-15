@@ -5,6 +5,7 @@ import Company from "../models/companyModel.js";
 import Financing from "../models/financingModel.js";
 import Audit from "../models/auditModel.js";
 import taxCalculationService from "./taxCalculationService.js";
+import emailService from "./emailService.js";
 
 // Helper: converts month number to readable name
 // e.g. 2 → "February", 12 → "December"
@@ -53,36 +54,48 @@ class PayrollService {
         error.statusCode = 400;
         throw error;
       }
-      // Check if payroll already exists for this period
-      const existingPayroll = await Payroll.findOne({
+
+      const maxPeriodsPerMonth = {
+        monthly: 1,
+        "bi-weekly": 2,
+        weekly: 4,
+      };
+
+      const payFrequency = company.payrollSettings?.payFrequency || "monthly";
+      const maxPeriods = maxPeriodsPerMonth[payFrequency];
+
+      // Count existing payrolls for this month
+      const existingCount = await Payroll.countDocuments({
         company: companyId,
         "payrollPeriod.month": month,
         "payrollPeriod.year": year,
       });
 
-      if (existingPayroll) {
+      if (existingCount >= maxPeriods) {
         const error = new Error(
-          // readable month name instead of 2/2026 — BRD Check 4
-          `Payroll already exists for ${getMonthName(month)} ${year}`
+          payFrequency === "monthly"
+            ? `Payroll already exists for ${getMonthName(month)} ${year}`
+            : `Maximum payroll runs for ${getMonthName(month)} ${year} reached. Your pay frequency allows ${maxPeriods} payroll runs per month.`
         );
         error.statusCode = 400;
         throw error;
       }
 
-      // Check 6: Company bank details — BRD 3.5
+      // Set period number for this payroll
+      const periodNumber = existingCount + 1;
+
+      // Check : Company bank details — BRD 3.5
       // Not a hard error — just a warning returned alongside the created payroll
       // Only relevant if company wants to use financing for payroll
       const bankWarning = !company.bankDetails?.accountNumber
           ? "Add bank details to your company profile to use the financing option"
           : null;
 
-
-      // Create draft payroll
       const payroll = await Payroll.create({
         company: companyId,
         createdBy: userId,
         currency: company.baseCurrency,
-        payrollPeriod: { month, year },
+        payrollPeriod: { month, year, periodNumber },
         status: "draft",
       });
 
@@ -97,7 +110,8 @@ class PayrollService {
         details: {
           month,
           year,
-          period: `${getMonthName(month)} ${year}`,
+          periodNumber,
+          period: `${getMonthName(month)} ${year} - Period ${periodNumber}`,
           activeEmployees: activeEmployeeCount,
         },
         status: "success",
@@ -154,18 +168,58 @@ class PayrollService {
 
       // Calculate payroll for each employee
       const payrollItems = [];
-      for (const employee of employees) {
+        for (const employee of employees) {
+          // Check if HR already entered compensation for this employee
+          // during the optional PATCH /api/payroll/:id/compensation step
+        const existingItem = payroll.payrollItems.find(
+          (i) => i.employee.toString() === employee._id.toString()
+        );
+
+          // Check if employee needs pro-rating — mid-month joiner or leaver
+        const proration = taxCalculationService.getProrationDetails(
+          employee,
+          payroll.payrollPeriod.month,
+          payroll.payrollPeriod.year
+        );
+
+        // Pro-rate base salary if needed
+        const effectiveBaseSalary = proration.isProrated
+          ? taxCalculationService.calculateProration(
+              employee.salary.amount,
+              proration.daysInMonth,
+              proration.daysWorked
+            )
+          : employee.salary.amount;
+
+           // Read allowances entered by HR — pro-rate each one if employee is mid-month joiner/leaver
+        const effectiveAllowances = (existingItem?.additions?.allowances || []).map((a) => ({
+          ...a,
+          amount: proration.isProrated
+            ? taxCalculationService.calculateProration(
+                a.amount,
+                proration.daysInMonth,
+                proration.daysWorked
+              )
+            : a.amount,
+        }));
+
+
+        // Bonus and overtime are NOT pro-rated — full amount or 0
+        const effectiveBonus = existingItem?.additions?.bonus || 0;
+        const effectiveOvertime = existingItem?.additions?.overtime || 0;
+
         const calculation = taxCalculationService.calculateEmployeePayroll({
-          grossSalary: employee.salary.amount,
+          grossSalary: effectiveBaseSalary,
           currency: employee.salary.currency,
-          allowances: [],
-          bonuses: 0,
-          otherDeductions: [],
+          allowances: effectiveAllowances,
+          bonuses: effectiveBonus,
+          otherDeductions: existingItem?.deductions?.otherDeductions || [],
+          taxRelief: employee.taxInformation?.taxRelief || null,
         });
 
         payrollItems.push({
           employee: employee._id,
-          baseSalary: employee.salary.amount,
+          baseSalary: effectiveBaseSalary,
           grossSalary: calculation.grossSalary,
           deductions: {
             tax: calculation.deductions.tax,
@@ -186,7 +240,13 @@ class PayrollService {
           },
           netSalary: calculation.netSalary,
           paymentStatus: "pending",
-        });
+          prorationDetails: {
+            isProrated: proration.isProrated,
+            daysWorked: proration.isProrated ? proration.daysWorked : null,
+            daysInMonth: proration.isProrated ? proration.daysInMonth : null,
+            note: proration.isProrated ? proration.prorationNote : null,
+        },
+      });
       }
 
       // Calculate summary
@@ -323,7 +383,13 @@ class PayrollService {
       const payroll = await Payroll.findOne({
         _id: payrollId,
         company: companyId,
-      }).populate("company")
+      })
+        .populate("company")
+        .populate({
+          path: "payrollItems.employee",
+          select: "bankDetails salary user",
+          populate: { path: "user", select: "firstName lastName email" },
+        })
         .session(session);
 
       if (!payroll) {
@@ -351,49 +417,94 @@ class PayrollService {
         payroll.financingUsed = activeFinancing._id;
       }
 
-      // Update status
+      // Update payroll status
       payroll.status = "processing";
       payroll.processedBy = userId;
       payroll.processedAt = new Date();
 
-      // Update payment status for each item
+      // Update each item to processing
       payroll.payrollItems.forEach((item) => {
         item.paymentStatus = "processing";
-        item.paymentDate = new Date();
-        // In production, generate actual payment reference from payment gateway
-        item.paymentReference = `PAY-${Date.now()}-${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
       });
 
-      await payroll.save({session});
+      await payroll.save({ session });
 
-        // 4️⃣ Log audit inside session
-    await Audit.log(
-      {
-        company: companyId,
-        user: userId,
-        action: "payroll_processed",
-        module: "payroll",
-        resourceType: "payroll",
-        resourceId: payrollId,
-        details: {
-          month: payroll.payrollPeriod.month,
-          year: payroll.payrollPeriod.year,
+      // Log audit
+      await Audit.log(
+        {
+          company: companyId,
+          user: userId,
+          action: "payroll_processed",
+          module: "payroll",
+          resourceType: "payroll",
+          resourceId: payrollId,
+          details: {
+            month: payroll.payrollPeriod.month,
+            year: payroll.payrollPeriod.year,
+            totalEmployees: payroll.summary.totalEmployees,
+            totalNet: payroll.summary.totalNet,
+          },
+          status: "success",
+          severity: "high",
         },
-        status: "success",
-        severity: "high",
-      },
-      session
-    );
+        session
+      );
 
-      // TODO: Integrate with payment gateway to disburse funds
-      // For MVP, we'll simulate successful payment
-    await this.completePayrollProcessing(payrollId, companyId, userId, session);
+      await session.commitTransaction();
+      session.endSession();
 
-    // Commit transaction
-    await session.commitTransaction();
-    session.endSession();
+      // Queue individual payment jobs for each employee
+      // Done AFTER committing transaction so payroll is saved before jobs run
+      const { paymentQueue } = await import("../config/paymentQueue.js");
+      const PaymentTransaction = (
+        await import("../models/paymentTransactionModel.js")
+      ).default;
+
+      for (const item of payroll.payrollItems) {
+        const employee = item.employee;
+
+        // Validate employee has bank details
+        if (!employee?.bankDetails?.accountNumber) {
+          console.warn(
+            `Employee ${employee._id} has no bank details — skipping payment`
+          );
+          continue;
+        }
+
+        // Generate unique Flutterwave reference
+        const flutterwaveReference = `PAY-${payrollId}-${employee._id}-${Date.now()}`;
+
+        // Create transaction record
+        const transaction = await PaymentTransaction.create({
+          company: companyId,
+          payroll: payrollId,
+          employee: employee._id,
+          amount: item.netSalary,
+          currency: payroll.currency,
+          bankDetails: {
+            bankName: employee.bankDetails.bankName,
+            bankCode: employee.bankDetails.bankCode,
+            accountNumber: employee.bankDetails.accountNumber,
+            accountName: employee.bankDetails.accountName,
+          },
+          status: "pending",
+          flutterwaveReference,
+          initiatedBy: userId,
+        });
+
+        // Add job to queue
+        const job = await paymentQueue.add(
+          "process-payment",
+          { transactionId: transaction._id.toString() },
+          {
+            jobId: `payment-${transaction._id}`, // Unique job ID prevents duplicates
+          }
+        );
+
+        // Save job ID to transaction for tracking
+        transaction.queueJobId = job.id;
+        await transaction.save();
+      }
 
       return payroll;
     } catch (error) {
@@ -436,8 +547,34 @@ class PayrollService {
       });
 
       payroll.status = "completed";
-
       await payroll.save({session});
+
+       // Send payslip email to each employee after committing
+       // Done outside the session so email failures don't roll back the transaction
+      // setImmediate(async () => {
+      //   for (const item of payroll.payrollItems) {
+      //     try {
+      //       const employee = await Employee.findById(item.employee)
+      //         .populate("user", "firstName lastName email");
+
+      //       if (employee?.user?.email) {
+      //         await emailService.sendPayslipEmail(
+      //           {
+      //             firstName: employee.user.firstName,
+      //             email: employee.user.email,
+      //           },
+      //           item,
+      //           payroll.currency  
+      //         );
+      //       }
+      //     } catch (emailError) {
+      //       console.error(
+      //         `Payslip email failed for employee ${item.employee}:`,
+      //         emailError.message
+      //       );
+      //     }
+      //   }
+      // });
 
       // Log audit
       await Audit.log({
@@ -672,6 +809,284 @@ class PayrollService {
       }
 
       return stats;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+ * Correct a specific employee's payroll item
+ * Only allowed when payroll is in draft or calculated status
+ */
+  async correctPayrollItem(payrollId, companyId, employeeId, corrections, userId) {
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+
+      const payroll = await Payroll.findOne({
+        _id: payrollId,
+        company: companyId,
+      }).session(session);
+
+      if (!payroll) {
+        throw new Error("Payroll not found");
+      }
+
+      // Only allow corrections on draft or calculated payrolls
+      if (!["draft", "calculated"].includes(payroll.status)) {
+        throw new Error(
+          "Corrections can only be made to payrolls in draft or calculated status"
+        );
+      }
+
+      // Find the employee's payroll item
+      const itemIndex = payroll.payrollItems.findIndex(
+        (item) => item.employee.toString() === employeeId.toString()
+      );
+
+      if (itemIndex === -1) {
+        throw new Error("Employee not found in this payroll");
+      }
+
+      const item = payroll.payrollItems[itemIndex];
+
+      // Apply allowed corrections
+      if (corrections.bonus !== undefined) {
+        item.additions.bonus = corrections.bonus;
+      }
+
+      if (corrections.overtime !== undefined) {
+        item.additions.overtime = corrections.overtime;
+      }
+
+      if (corrections.allowances !== undefined) {
+        item.additions.allowances = corrections.allowances; // full replace
+      }
+
+      if (corrections.otherDeductions !== undefined) {
+        item.deductions.otherDeductions = corrections.otherDeductions; // full replace
+      }
+
+      // Recalculate gross: baseSalary + bonus + overtime + allowances
+      const totalAllowances = item.additions.allowances.reduce(
+        (sum, a) => sum + (a.amount || 0),
+        0
+      );
+      item.grossSalary =
+        item.baseSalary +
+        item.additions.bonus +
+        item.additions.overtime +
+        totalAllowances;
+
+      // Recalculate tax, pension, NHF based on new gross
+      const recalculated = taxCalculationService.calculateEmployeePayroll({
+        grossSalary: item.grossSalary,
+        currency: payroll.currency,
+        allowances: item.additions.allowances,
+        bonuses: item.additions.bonus,
+        otherDeductions: item.deductions.otherDeductions,
+      });
+
+      item.deductions.tax = recalculated.deductions.tax;
+      item.deductions.pension = recalculated.deductions.pension;
+      item.deductions.nhf = recalculated.deductions.nhf;
+      item.employerContributions = recalculated.employerContributions;
+      item.netSalary = recalculated.netSalary;
+
+      // Recalculate payroll summary
+      payroll.summary.totalGross = payroll.payrollItems.reduce(
+        (sum, i) => sum + i.grossSalary, 0
+      );
+      payroll.summary.totalDeductions = payroll.payrollItems.reduce(
+        (sum, i) => sum + i.deductions.tax + i.deductions.pension + i.deductions.nhf, 0
+      );
+      payroll.summary.totalAdditions = payroll.payrollItems.reduce(
+        (sum, i) =>
+          sum +
+          i.additions.bonus +
+          i.additions.overtime +
+          i.additions.allowances.reduce((aSum, a) => aSum + (a.amount || 0), 0),
+        0
+      );
+      payroll.summary.totalNet = payroll.payrollItems.reduce(
+        (sum, i) => sum + i.netSalary, 0
+      );
+      payroll.summary.totalEmployerContributions = payroll.payrollItems.reduce(
+        (sum, i) =>
+          sum +
+          i.employerContributions.pension +
+          i.employerContributions.nhis +
+          i.employerContributions.itf +
+          i.employerContributions.nsitf,
+        0
+      );
+
+      // If payroll was calculated, reset to draft so it gets reviewed again
+      if (payroll.status === "calculated") {
+        payroll.status = "draft";
+      }
+
+      await payroll.save({ session });
+
+      await Audit.log({
+        company: companyId,
+        user: userId,
+        action: "payroll_item_corrected",
+        module: "payroll",
+        resourceType: "payroll",
+        resourceId: payroll._id,
+        details: {
+          employeeId,
+          corrections,
+          month: payroll.payrollPeriod.month,
+          year: payroll.payrollPeriod.year,
+        },
+        status: "success",
+        severity: "medium",
+      }, session);
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return payroll;
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+      throw error;
+    }
+  }
+
+  /**
+   * Add compensation (bonus, overtime, allowances) to payroll items before calculation
+   * PATCH /api/payroll/:id/compensation
+   * Optional step — can be skipped if no compensation exists for the period
+   */
+  async addPayrollCompensation(payrollId, companyId, compensationItems, userId) {
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+
+      const payroll = await Payroll.findOne({
+        _id: payrollId,
+        company: companyId,
+      }).session(session);
+
+      if (!payroll) {
+        throw new Error("Payroll not found");
+      }
+
+      // Only allowed on draft payrolls — before calculation
+      if (payroll.status !== "draft") {
+        throw new Error(
+          "Compensation can only be added to payrolls in draft status"
+        );
+      }
+
+      // Get all active employees for this company to validate employeeIds
+      const activeEmployeeIds = await Employee.find({
+        company: companyId,
+        isActive: true,
+      })
+        .select("_id")
+        .session(session)
+        .then((emps) => emps.map((e) => e._id.toString()));
+
+      const errors = [];
+
+      for (const item of compensationItems) {
+        const { employeeId, bonus, overtime, allowances } = item;
+
+        // Validate employee belongs to this company
+        if (!activeEmployeeIds.includes(employeeId.toString())) {
+          errors.push(`Employee ${employeeId} not found or not active`);
+          continue;
+        }
+
+        // Find existing payroll item for this employee or create a placeholder
+        let payrollItem = payroll.payrollItems.find(
+          (i) => i.employee.toString() === employeeId.toString()
+        );
+
+        if (!payrollItem) {
+          // Employee exists but payroll item not yet created — add placeholder
+          // calculatePayroll will fill in salary and deductions
+          payroll.payrollItems.push({
+            employee: employeeId,
+            baseSalary: 0,
+            grossSalary: 0,
+            netSalary: 0,
+            additions: {
+              bonus: bonus || 0,
+              allowances: allowances || [],
+              overtime: overtime || 0,
+            },
+            paymentStatus: "pending",
+          });
+        } else {
+          // Update existing item additions
+          if (bonus !== undefined) payrollItem.additions.bonus = bonus;
+          if (overtime !== undefined) payrollItem.additions.overtime = overtime;
+          if (allowances !== undefined) payrollItem.additions.allowances = allowances;
+        }
+      }
+
+      // If any employee IDs were invalid, abort
+      if (errors.length > 0) {
+        await session.abortTransaction();
+        session.endSession();
+        return { success: false, errors };
+      }
+
+      await payroll.save({ session });
+
+      await Audit.log({
+        company: companyId,
+        user: userId,
+        action: "payroll_compensation_added",
+        module: "payroll",
+        resourceType: "payroll",
+        resourceId: payroll._id,
+        details: {
+          month: payroll.payrollPeriod.month,
+          year: payroll.payrollPeriod.year,
+          employeesUpdated: compensationItems.length,
+        },
+        status: "success",
+        severity: "medium",
+      }, session);
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return { success: true, payroll };
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+      throw error;
+    }
+  }
+
+  /**
+   * Mark a specific payroll item as paid
+   * Called from webhook handler after Flutterwave confirms transfer
+   */
+  async markPayrollItemPaid(payrollId, employeeId, paymentReference) {
+    try {
+      const payroll = await Payroll.findById(payrollId);
+      if (!payroll) throw new Error("Payroll not found");
+
+      const item = payroll.payrollItems.find(
+        (i) => i.employee.toString() === employeeId.toString()
+      );
+
+      if (!item) throw new Error("Payroll item not found");
+
+      item.paymentStatus = "paid";
+      item.paymentDate = new Date();
+      item.paymentReference = paymentReference;
+
+      await payroll.save();
+      return payroll;
     } catch (error) {
       throw error;
     }

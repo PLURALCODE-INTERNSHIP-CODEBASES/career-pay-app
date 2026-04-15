@@ -61,11 +61,15 @@ const employeeSchema = new mongoose.Schema({
   },
   bankDetails: {
     bankName: String,
+    bankCode: {
+      type: String,
+      match: [/^\d{3}$/, 'Bank code must be exactly 3 digits']
+    },
     accountNumber: {
       type: String,
       match: [/^\d{10}$/, 'Account number must be exactly 10 digits']
     },
-    accountName: String
+    accountName: String,
   },
   taxInformation: {
     taxId: String, // TIN (Tax Identification Number)

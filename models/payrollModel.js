@@ -62,6 +62,12 @@ const payrollItemSchema = new mongoose.Schema({
   },
   paymentDate: Date,
   paymentReference: String,
+  prorationDetails: {
+    isProrated: { type: Boolean, default: false },
+    daysWorked: { type: Number },
+    daysInMonth: { type: Number },
+    note: { type: String },
+  },
 });
 
 const payrollSchema = new mongoose.Schema(
@@ -88,6 +94,13 @@ const payrollSchema = new mongoose.Schema(
       year: {
         type: Number,
         required: true,
+      },
+      periodNumber: {
+        type: Number,
+        default: 1,
+        // Monthly: always 1
+        // Bi-weekly: 1 or 2
+        // Weekly: 1, 2, 3, or 4
       },
     },
 
@@ -137,7 +150,14 @@ const payrollSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Financing",
     },
-
+    isOffCycle: {
+      type: Boolean,
+      default: false,
+    },
+    offCycleReason: {
+      type: String,
+      default: null,
+    },
     notes: String,
   },
 
@@ -151,6 +171,7 @@ payrollSchema.index(
     company: 1,
     "payrollPeriod.month": 1,
     "payrollPeriod.year": 1,
+    "payrollPeriod.periodNumber": 1,
   },
   { unique: true }
 );

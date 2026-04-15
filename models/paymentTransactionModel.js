@@ -1,0 +1,114 @@
+import mongoose from "mongoose";
+
+const paymentTransactionSchema = new mongoose.Schema(
+  {
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
+
+    payroll: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Payroll",
+      required: true,
+      index: true,
+    },
+
+    employee: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Employee",
+      required: true,
+    },
+
+    // Amount sent to employee
+    amount: {
+      type: Number,
+      required: true,
+    },
+
+    currency: {
+      type: String,
+      enum: ["NGN", "USD"],
+      default: "NGN",
+    },
+
+    // Bank details snapshot at time of payment
+    bankDetails: {
+      bankName: String,
+      bankCode: String,
+      accountNumber: String,
+      accountName: String,
+    },
+
+    status: {
+      type: String,
+      enum: ["pending", "processing", "success", "failed"],
+      default: "pending",
+      index: true,
+    },
+
+    // Flutterwave transfer reference
+    flutterwaveReference: {
+      type: String,
+    },
+
+    // Flutterwave transfer ID returned after initiation
+    flutterwaveTransferId: {
+      type: String,
+    },
+
+    // Flutterwave response message
+    gatewayMessage: {
+      type: String,
+    },
+
+    // Number of times payment has been attempted
+    attemptCount: {
+      type: Number,
+      default: 0,
+    },
+
+    // Maximum retries allowed
+    maxRetries: {
+      type: Number,
+      default: 5,
+    },
+
+    // Timestamp of last attempt
+    lastAttemptAt: {
+      type: Date,
+    },
+
+    // Timestamp of successful payment
+    paidAt: {
+      type: Date,
+    },
+
+    // Reason for permanent failure after all retries
+    failureReason: {
+      type: String,
+    },
+
+    // Job ID in BullMQ queue — used to track/cancel jobs
+    queueJobId: {
+      type: String,
+    },
+
+    initiatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Compound index for tracking page queries
+paymentTransactionSchema.index({ company: 1, status: 1, createdAt: -1 });
+paymentTransactionSchema.index({ payroll: 1, employee: 1 });
+
+export default mongoose.model("PaymentTransaction", paymentTransactionSchema);

@@ -36,6 +36,7 @@ const auditSchema = new mongoose.Schema(
         // Employee Management
         "employee_created",
         "employee_updated",
+        "employee_profile_updated",
         "employee_deleted",
         "employee_activated",
         "employee_deactivated",
@@ -47,10 +48,11 @@ const auditSchema = new mongoose.Schema(
         "payroll_processed",
         "payroll_completed",
         "payroll_failed",
-        "payroll_failed",
         "payroll_generated",
         "payroll_downloaded",
         "payroll_exported",
+        "payroll_item_corrected",
+        "payroll_compensation_added",
 
         // Equity Management
         "equity_grant_created",
@@ -68,6 +70,9 @@ const auditSchema = new mongoose.Schema(
         "financing_disbursed",
         "repayment_made",
         "repayment_failed",
+
+        // Subscription
+        "subscription_activated",
 
         // Access Control
         "role_changed",

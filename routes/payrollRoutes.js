@@ -4,6 +4,13 @@ import { protect, isHROrAbove, isFounderOrAdmin, requireVerified } from "../midd
 
 const router = express.Router();
 
+/**
+ * @route   POST /api/payroll/payment-webhook
+ * @desc    Flutterwave webhook — called automatically after transfer completes
+ * @access  Public — Flutterwave calls this, no auth token
+ */
+router.post("/payment-webhook", payrollController.handlePaymentWebhook);
+
 // All routes require authentication
 router.use(protect);
 router.use(requireVerified);
@@ -67,6 +74,13 @@ router.get("/:id", isHROrAbove, payrollController.getPayrollById);
 router.post("/:id/calculate", isHROrAbove, payrollController.calculatePayroll);
 
 /**
+ * @route   PATCH /api/payroll/:id/compensation
+ * @desc    Add bonus, overtime, allowances before calculation (optional step)
+ * @access  Private (HR+)
+ */
+router.patch("/:id/compensation", isHROrAbove, payrollController.addPayrollCompensation);
+
+/**
  * @route   POST /api/payroll/:id/approve
  * @desc    Approve payroll
  * @access  Private (Admin, Founder only)
@@ -93,5 +107,26 @@ router.get("/:id/export", isHROrAbove, payrollController.exportPayroll);
  * @access  Private (Employee can view own, HR+ can view all)
  */
 router.get("/:id/payslip/:employeeId", payrollController.getPayslip);
+
+/**
+ * @route   PATCH /api/payroll/:id/items/:employeeId
+ * @desc    Correct a specific employee's payroll item (draft/calculated only)
+ * @access  Private (HR+)
+ */
+router.patch("/:id/items/:employeeId", isHROrAbove, payrollController.correctPayrollItem);
+
+/**
+ * @route   GET /api/payroll/transactions
+ * @desc    Get all payment transactions for company (tracking page)
+ * @access  Private (HR+)
+ */
+router.get("/transactions", isHROrAbove, payrollController.getAllTransactions);
+
+/**
+ * @route   GET /api/payroll/:id/transactions
+ * @desc    Get all payment transactions for a specific payroll
+ * @access  Private (HR+)
+ */
+router.get("/:id/transactions", isHROrAbove, payrollController.getPayrollTransactions);
 
 export default router;
