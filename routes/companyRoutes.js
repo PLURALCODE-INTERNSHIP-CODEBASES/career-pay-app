@@ -138,7 +138,7 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
   try {
     const companyId = req.user.company;
     const userId = req.user.id;
-    const { payrollSettings, baseCurrency, bankDetails } = req.body;
+    const { payrollSettings, baseCurrency, bankDetails, address } = req.body;
 
     const company = await Company.findById(companyId);
 
@@ -153,6 +153,7 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
       payrollSettings: company.payrollSettings,
       baseCurrency: company.baseCurrency,
       bankDetails: company.bankDetails,
+      address: company.address
     };
 
     // Update settings
@@ -163,6 +164,14 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
       };
 
       company.markModified("bankDetails");
+    }
+    if (address) {
+      company.address = {
+        ...company.address,
+        ...address,
+      };
+
+      company.markModified("address");
     }
     if (payrollSettings) {
       company.payrollSettings = {
@@ -195,6 +204,7 @@ router.put("/settings", protect , isFounderOrAdmin, async (req, res) => {
           payrollSettings: company.payrollSettings,
           baseCurrency: company.baseCurrency,
           bankDetails: company.bankDetails,
+          address: company.address
         },
       },
       ipAddress: req.ip,

@@ -7,12 +7,23 @@ import axios from "axios";
 
 /**
  * Payment Gateway Abstraction — Flutterwave
- * When switching to Remita or Onafriq, only change this function
  */
 async function disburseSinglePayment(transaction) {
   const { amount, currency, bankDetails, flutterwaveReference } = transaction;
 
-  const response = await axios.post(
+  // Guard — bankCode is required by Flutterwave
+  if (!bankDetails.bankCode) {
+    throw new Error(
+      `Bank code missing for account ${bankDetails.accountNumber}. Update employee bank details.`
+    );
+  }
+
+  const reference = process.env.FLUTTERWAVE_ENV === "production"
+  ? flutterwaveReference
+  : `${flutterwaveReference}_PMCK`;
+
+  try{
+      const response = await axios.post(
     "https://api.flutterwave.com/v3/transfers",
     {
       account_bank: bankDetails.bankCode,
@@ -20,7 +31,7 @@ async function disburseSinglePayment(transaction) {
       amount,
       currency,
       narration: `Salary payment - CareerPay`,
-      reference: flutterwaveReference,
+      reference,
       callback_url: `${process.env.APP_URL}/api/payroll/payment-webhook`,
       debit_currency: currency,
     },
@@ -42,6 +53,14 @@ async function disburseSinglePayment(transaction) {
     transferId: response.data.data.id.toString(),
     message: response.data.message,
   };
+  } catch (error) {
+    // Log the FULL Flutterwave response so you can see exactly what's wrong
+    if (error.response) {
+      console.error("Flutterwave 400 response body:", JSON.stringify(error.response.data, null, 2));
+      console.error("Request payload sent:", JSON.stringify(error.config?.data, null, 2));
+    }
+    throw error;
+    }
 }
 
 /**
@@ -92,6 +111,7 @@ export async function checkAndFinalizePayroll(payrollId) {
 
   await Audit.log({
     company: payroll.company,
+    user: payroll.processedBy, 
     action:
       payroll.status === "completed"
         ? "payroll_completed"

@@ -748,7 +748,11 @@ class PayrollController {
       // Always return 200 — tells Flutterwave we received it
       return res.status(200).json({ received: true });
     } catch (error) {
-      console.error("Payment webhook error:", error);
+      console.error("Payment webhook error:", {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data, // 
+      });
       // Still return 200 — prevent Flutterwave from retrying on our internal errors
       return res.status(200).json({ received: true });
     }
@@ -876,7 +880,11 @@ async function handlePayrollTransferWebhook(data) {
     // Check if all payments for this payroll are now settled
     await checkAndFinalizePayroll(transaction.payroll);
   } catch (error) {
-    console.error("Payroll transfer webhook handler error:", error.message);
+    console.error("Payroll transfer webhook handler error:", {
+    message: error.message,
+    status: error.response?.status,
+    data: error.response?.data, // 
+  });
     throw error;
   }
 }

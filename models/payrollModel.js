@@ -97,6 +97,7 @@ const payrollSchema = new mongoose.Schema(
       },
       periodNumber: {
         type: Number,
+        required: true,
         default: 1,
         // Monthly: always 1
         // Bi-weekly: 1 or 2

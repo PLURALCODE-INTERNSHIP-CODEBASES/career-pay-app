@@ -118,6 +118,12 @@ class TaxCalculationService {
     };
   }
 
+  normalizeToUTCMidnight(date) {
+    const d = new Date(date);
+    d.setUTCHours(0, 0, 0, 0);
+    return d;
+  }
+
   /**
    * Calculate pro-rated amount for a given monthly amount
    * Formula: (monthlyAmount / daysInMonth) × daysWorked

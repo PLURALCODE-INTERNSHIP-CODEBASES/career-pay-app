@@ -62,10 +62,12 @@ const employeeSchema = new mongoose.Schema({
   bankDetails: {
     bankName: String,
     bankCode: {
+      required: true,
       type: String,
       match: [/^\d{3}$/, 'Bank code must be exactly 3 digits']
     },
     accountNumber: {
+      required: true,
       type: String,
       match: [/^\d{10}$/, 'Account number must be exactly 10 digits']
     },
