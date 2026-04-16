@@ -19,8 +19,8 @@ async function disburseSinglePayment(transaction) {
   }
 
   const reference = process.env.FLUTTERWAVE_ENV === "production"
-  ? flutterwaveReference
-  : `${flutterwaveReference}_PMCK`;
+  ? `${flutterwaveReference}-${transaction.attemptCount}`
+  : `${flutterwaveReference}-${transaction.attemptCount}_PMCK`;
 
   try{
       const response = await axios.post(
