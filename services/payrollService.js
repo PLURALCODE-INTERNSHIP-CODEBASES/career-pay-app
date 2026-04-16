@@ -472,7 +472,7 @@ class PayrollService {
         }
 
         // Generate unique Flutterwave reference
-        const flutterwaveReference = `PAY-${payrollId}-${employee._id}-${Date.now()}`;
+       const flutterwaveReference = `PAY-${payrollId.toString().slice(-8)}-${employee._id.toString().slice(-8)}-${Date.now().toString(36)}`;
 
         // Create transaction record
         const transaction = await PaymentTransaction.create({
