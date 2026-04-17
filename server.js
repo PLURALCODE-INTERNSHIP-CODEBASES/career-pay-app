@@ -2,6 +2,7 @@ import 'dotenv/config';
 import connectDB from "./config/db.js";
 import app from './app.js';
 import worker from './services/paymentWorker.js';
+import reconciliationWorker, { startReconciliationSchedule } from './services/reconciliationWorker.js';
 
 const startServer = async () => {
   try {
@@ -11,6 +12,9 @@ const startServer = async () => {
     // Start payment worker — processes payroll payment jobs from queue
     // Runs continuously in background alongside the API server
     console.log('Payment worker started and listening for jobs...');
+
+    await startReconciliationSchedule(); // ← ADD
+    console.log('Reconciliation worker started...'); 
 
     // Start listening
     const PORT = process.env.PORT || 5000;
@@ -34,6 +38,8 @@ const startServer = async () => {
       // Close worker first — waits for current job to finish before stopping
       await worker.close();
       console.log('Payment worker closed');
+      await reconciliationWorker.close(); 
+      console.log('Reconciliation worker closed');
 
       server.close(() => {
         console.log('Process terminated');
