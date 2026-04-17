@@ -8,6 +8,7 @@ import dashboardRoutes from "./dashboardRoutes.js";
 import companyRoutes from "./companyRoutes.js";
 import subscriptionRoutes from "./subscriptionRoutes.js"
 import requireSubscription from "../middlewares/requireSubscription.js";
+import payrollController from "../controllers/payrollController.js";
 import { protect } from "../middlewares/authMiddleware.js";
 
 
