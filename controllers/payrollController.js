@@ -811,19 +811,26 @@ async function handleSubscriptionWebhook(data) {
 async function handlePayrollTransferWebhook(data) {
   try {
     const { reference, status, complete_message } = data;
-    const flutterwaveStatus = status; // "SUCCESSFUL" or "FAILED"
+
+    const cleanReference = reference
+      .replace(/_PMCK_ST_F$/, "")  
+      .replace(/_PMCK$/, "")        
+      .replace(/-\d+$/, ""); 
 
     // Find our transaction record
     const transaction = await PaymentTransaction.findOne({
-      flutterwaveReference: reference,
+      flutterwaveReference: cleanReference,
     });
 
-    if (!transaction) return; // Not a CareerPay transfer — ignore
+    if (!transaction) {
+      console.log(`No transaction found for reference: ${cleanReference} (raw: ${reference})`);
+      return;
+    }
 
     // Prevent duplicate processing
     if (["success", "failed"].includes(transaction.status)) return;
 
-    if (flutterwaveStatus === "SUCCESSFUL") {
+    if (status === "SUCCESSFUL") {
       transaction.status = "success";
       transaction.paidAt = new Date();
       transaction.gatewayMessage = "Transfer successful";
@@ -833,7 +840,7 @@ async function handlePayrollTransferWebhook(data) {
       await payrollService.markPayrollItemPaid(
         transaction.payroll,
         transaction.employee,
-        reference
+        cleanReference
       );
 
       // Send payslip email — outside main flow so email failure never blocks webhook
