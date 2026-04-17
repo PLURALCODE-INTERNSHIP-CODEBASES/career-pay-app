@@ -4,13 +4,6 @@ import { protect, isHROrAbove, isFounderOrAdmin, requireVerified } from "../midd
 
 const router = express.Router();
 
-/**
- * @route   POST /api/payroll/payment-webhook
- * @desc    Flutterwave webhook — called automatically after transfer completes
- * @access  Public — Flutterwave calls this, no auth token
- */
-router.post("/payment-webhook", payrollController.handlePaymentWebhook);
-
 // All routes require authentication
 router.use(protect);
 router.use(requireVerified);

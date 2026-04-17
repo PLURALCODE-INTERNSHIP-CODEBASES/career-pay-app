@@ -34,6 +34,13 @@ router.use("/dashboard", dashboardRoutes);
 router.use("/companies", companyRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 
+/**
+ * @route   POST /api/payroll/payment-webhook
+ * @desc    Flutterwave webhook — called automatically after transfer completes
+ * @access  Public — Flutterwave calls this, no auth token
+ */
+router.post("/payment-webhook", payrollController.handlePaymentWebhook);
+
 // Feature-gated routes — require active subscription
 router.use("/payroll",protect, requireSubscription("payroll"), payrollRoutes);
 router.use("/financing", requireSubscription("financing"), financingRoutes);
