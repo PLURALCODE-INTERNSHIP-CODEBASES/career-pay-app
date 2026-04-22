@@ -68,6 +68,7 @@ export async function initiateTransfer(transaction) {
         narration: "Salary payment - CareerPay",
         destinationBankCode: bankDetails.bankCode,
         destinationAccountNumber: bankDetails.accountNumber,
+        destinationAccountName: bankDetails.accountName, 
         currency,
         sourceAccountNumber: process.env.MONNIFY_WALLET_ACCOUNT,
       },
