@@ -5,7 +5,6 @@ import Company from "../models/companyModel.js";
 import Financing from "../models/financingModel.js";
 import Audit from "../models/auditModel.js";
 import taxCalculationService from "./taxCalculationService.js";
-import emailService from "./emailService.js";
 
 // Helper: converts month number to readable name
 // e.g. 2 → "February", 12 → "December"
@@ -471,8 +470,7 @@ class PayrollService {
           continue;
         }
 
-        // Generate unique Flutterwave reference
-       const flutterwaveReference = `PAY-${payrollId.toString().slice(-8)}-${employee._id.toString().slice(-8)}-${Date.now().toString(36)}`;
+       const paymentReference = `PAY-${payrollId.toString().slice(-8)}-${employee._id.toString().slice(-8)}-${Date.now().toString(36)}`;
 
         // Create transaction record
         const transaction = await PaymentTransaction.create({
@@ -488,7 +486,7 @@ class PayrollService {
             accountName: employee.bankDetails.accountName,
           },
           status: "pending",
-          flutterwaveReference,
+          paymentReference,
           initiatedBy: userId,
         });
 
@@ -526,80 +524,6 @@ class PayrollService {
         severity: "critical",
       });
 
-      throw error;
-    }
-  }
-
-  /**
-   * Complete payroll processing (called after payment confirmation)
-   */
-  async completePayrollProcessing(payrollId, companyId, userId, session) {
-    try {
-      const payroll = await Payroll.findById(payrollId).session(session);
-
-      if (!payroll) {
-        throw new Error("Payroll not found");
-      }
-
-      // Mark all items as paid
-      payroll.payrollItems.forEach((item) => {
-        item.paymentStatus = "paid";
-      });
-
-      payroll.status = "completed";
-      await payroll.save({session});
-
-       // Send payslip email to each employee after committing
-       // Done outside the session so email failures don't roll back the transaction
-      // setImmediate(async () => {
-      //   for (const item of payroll.payrollItems) {
-      //     try {
-      //       const employee = await Employee.findById(item.employee)
-      //         .populate("user", "firstName lastName email");
-
-      //       if (employee?.user?.email) {
-      //         await emailService.sendPayslipEmail(
-      //           {
-      //             firstName: employee.user.firstName,
-      //             email: employee.user.email,
-      //           },
-      //           item,
-      //           payroll.currency  
-      //         );
-      //       }
-      //     } catch (emailError) {
-      //       console.error(
-      //         `Payslip email failed for employee ${item.employee}:`,
-      //         emailError.message
-      //       );
-      //     }
-      //   }
-      // });
-
-      // Log audit
-      await Audit.log({
-        company: companyId,
-        user: userId,
-        action: "payroll_completed",
-        module: "payroll",
-        resourceType: "payroll",
-        resourceId: payroll._id,
-        details: {
-          month: payroll.payrollPeriod.month,
-          year: payroll.payrollPeriod.year,
-          totalAmount: payroll.summary.totalNet,
-          employeesPaid: payroll.summary.totalEmployees,
-        },
-        status: "success",
-        severity: "high",
-        metadata: {
-          affectedRecords: payroll.summary.totalEmployees,
-        },
-      }, session
-    );
-
-      return payroll;
-    } catch (error) {
       throw error;
     }
   }
@@ -1088,6 +1012,126 @@ class PayrollService {
       await payroll.save();
       return payroll;
     } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+ * Retry failed payments for a partially completed or failed payroll
+ */
+  async retryFailedPayments(payrollId, companyId, userId) {
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+
+      const payroll = await Payroll.findOne({
+        _id: payrollId,
+        company: companyId,
+      })
+        .populate({
+          path: "payrollItems.employee",
+          select: "bankDetails salary user",
+          populate: { path: "user", select: "firstName lastName email" },
+        })
+        .session(session);
+
+      if (!payroll) {
+        throw new Error("Payroll not found");
+      }
+
+      // Only allow retry on partially_completed or failed payrolls
+      if (!["partially_completed", "failed"].includes(payroll.status)) {
+        throw new Error(
+          "Retry is only allowed on partially completed or failed payrolls"
+        );
+      }
+
+      const PaymentTransaction = (
+        await import("../models/paymentTransactionModel.js")
+      ).default;
+
+      // Find all failed transactions for this payroll
+      const failedTransactions = await PaymentTransaction.find({
+        payroll: payrollId,
+        company: companyId,
+        status: "failed",
+      }).session(session);
+
+      if (failedTransactions.length === 0) {
+        throw new Error("No failed transactions found for this payroll");
+      }
+
+      // Reset payroll status to processing
+      payroll.status = "processing";
+
+      // Reset failed payroll items back to processing
+      for (const transaction of failedTransactions) {
+        const item = payroll.payrollItems.find(
+          (i) => i.employee._id.toString() === transaction.employee.toString()
+        );
+        if (item) {
+          item.paymentStatus = "processing";
+        }
+      }
+
+      await payroll.save({ session });
+
+      await Audit.log({
+        company: companyId,
+        user: userId,
+        action: "payroll_payment_retry",
+        module: "payroll",
+        resourceType: "payroll",
+        resourceId: payroll._id,
+        details: {
+          month: payroll.payrollPeriod.month,
+          year: payroll.payrollPeriod.year,
+          failedCount: failedTransactions.length,
+        },
+        status: "success",
+        severity: "high",
+      }, session);
+
+      await session.commitTransaction();
+      session.endSession();
+
+      // Re-queue failed transactions — done after commit
+      const { paymentQueue } = await import("../config/paymentQueue.js");
+
+      for (const transaction of failedTransactions) {
+        // Generate new reference — Flutterwave rejects reused references
+        const newReference = `PAY-${payrollId.toString().slice(-8)}-${transaction.employee.toString().slice(-8)}-${Date.now().toString(36)}`;
+
+        // Reset transaction for retry
+        transaction.status = "pending";
+        transaction.attemptCount = 0;
+        transaction.failureReason = null;
+        transaction.gatewayMessage = null;
+        transaction.gatewayTransferId = null;
+        transaction.paymentReference = newReference;
+        transaction.gateway = "flutterwave";
+        await transaction.save();
+
+        // Queue with new unique job ID — old job ID is exhausted
+        const job = await paymentQueue.add(
+          "process-payment",
+          { transactionId: transaction._id.toString() },
+          {
+            jobId: `payment-${transaction._id}-retry-${Date.now()}`,
+          }
+        );
+
+        transaction.queueJobId = job.id;
+        await transaction.save();
+      }
+
+      return {
+        payroll,
+        retriedCount: failedTransactions.length,
+      };
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
       throw error;
     }
   }

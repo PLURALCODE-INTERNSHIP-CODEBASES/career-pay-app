@@ -34,7 +34,6 @@ const paymentTransactionSchema = new mongoose.Schema(
       default: "NGN",
     },
 
-    // Bank details snapshot at time of payment
     bankDetails: {
       bankName: String,
       bankCode: String,
@@ -49,17 +48,24 @@ const paymentTransactionSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Flutterwave transfer reference
-    flutterwaveReference: {
+    // Gateway used for this transaction
+    gateway: {
+      type: String,
+      enum: ["flutterwave", "monnify"],
+      default: "flutterwave",
+    },
+
+    // Unique reference sent to the gateway
+    paymentReference: {
       type: String,
     },
 
-    // Flutterwave transfer ID returned after initiation
-    flutterwaveTransferId: {
+    // Transfer ID returned by the gateway after initiation
+    gatewayTransferId: {
       type: String,
     },
 
-    // Flutterwave response message
+    // response message from gateway
     gatewayMessage: {
       type: String,
     },

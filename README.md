@@ -106,9 +106,12 @@ The system is built with Express.js, MongoDB, and follows RESTful API principles
 - **morgan**: HTTP request logger
 - **express-rate-limit**: Rate limiting middleware
 - **express-validator**: Request validation
-- **nodemailer**: Email sending capabilities
+- **brevo**: Email sending capabilities
 - **axios**: HTTP client
 - **dotenv**: Environment variable management
+- **upstash/redis**: Stores queue and cache data
+- **bullmq**: Runs background jobs and queues
+- **ioredis**: Connects the app to redis
 
 ### Development Dependencies
 - **nodemon**: Development server with auto-restart
@@ -161,63 +164,85 @@ MONGODB_URI=your_mongodb_connection_string
 
 # JWT Configuration
 JWT_SECRET=your_jwt_secret_key
-JWT_EXPIRES_IN=7d
+JWT_EXPIRES_IN=15m
 JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
-JWT_REFRESH_EXPIRES_IN=30d
+JWT_REFRESH_EXPIRES_IN=7d
 
 # CORS
 CORS_ORIGIN=http://localhost:3000
 
-# Email Configuration (for Nodemailer)
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_email_password
+# Email Configuration (for brevo)
+BREVO_API_KEY=brevo_api_key
+SMTP_FROM=your_email@gmail.com
+APP_NAME=CareerPay
+APP_URL=https://career-pay.onrender.com
 ```
+# API KEYS
+EXCHANGE_RATE_API_KEY=your_exchange_rate_api_key
+FLUTTERWAVE_SECRET_KEY=your_flutterwave_secret_key
+UPSTASH_REDIS_URL=redis_url
+FLUTTERWAVE_WEBHOOK_HASH=your_webhook_hash
+FLUTTERWAVE_ENV=test
+MONNIFY_API_KEY=your_monnify_api_key
+MONNIFY_SECRET_KEY=your_monnify_secret_key
+MONNIFY_CONTRACT_CODE=your_monnify_contract_code
+MONNIFY_BASE_URL=https://sandbox.monnify.com
 
 ## Project Structure
 
 ```
 career-pay-app/
 ├── config/
-│   └── db.js                 # MongoDB connection configuration
-├── controllers/              # Route controllers
-│   ├── authController.js     # Authentication endpoints
-│   ├── employeeController.js # Employee management
-│   ├── payrollController.js # Payroll operations
-│   ├── equityController.js  # Equity/ESOP management
-│   ├── financingController.js # Financing operations
-│   └── dashboardController.js # Dashboard data
-├── middlewares/              # Custom middleware
-│   ├── authMiddleware.js     # Authentication & authorization
-│   ├── errorHandler.js       # Global error handling
-│   ├── validator.js          # Input validation
-│   ├── auditLogger.js        # Audit logging middleware
-│   └── role.js               # Role utilities
-├── models/                   # Mongoose schemas
-│   ├── userModel.js          # User schema
-│   ├── companyModel.js       # Company schema
-│   ├── employeeModel.js      # Employee schema
-│   ├── payrollModel.js       # Payroll schema
-│   ├── esopModel.js          # Equity grant schema
-│   ├── financingModel.js     # Financing schema
-│   └── auditModel.js         # Audit log schema
-├── routes/                   # API routes
-│   ├── index.js              # Main router
-│   ├── authRoutes.js         # Authentication routes
-│   ├── employeeRoutes.js     # Employee routes
-│   ├── payrollRoutes.js      # Payroll routes
-│   ├── esopRoutes.js         # Equity routes
-│   ├── financingRoutes.js    # Financing routes
-│   ├── dashboardRoutes.js    # Dashboard routes
-│   └── companyRoutes.js      # Company routes
-├── services/                 # Business logic services
-│   ├── authService.js        # Authentication logic
+│   ├── db.js    
+|   ├──  paymentQueue.js        # MongoDB connection configuration
+├── controllers/                # Route controllers
+│   ├── authController.js       # Authentication endpoints
+│   ├── employeeController.js   # Employee management
+│   ├── payrollController.js    # Payroll operations
+│   ├── equityController.js     # Equity/ESOP management
+│   ├── financingController.js  # Financing operations
+│   ├── dashboardController.js  # Dashboard data
+│   └──subcriptionController.js # Subcription management
+├── middlewares/                # Custom middleware
+│   ├── authMiddleware.js       # Authentication & authorization
+│   ├── errorHandler.js         # Global error handling
+│   ├── validator.js            # Input validation
+│   ├── auditLogger.js          # Audit logging middleware
+│   ├── requireSubscription.js  # Subscription middleware
+│   └── role.js                 # Role utilities
+├── models/                     # Mongoose schemas
+│   ├── userModel.js            # User schema
+│   ├── companyModel.js         # Company schema
+│   ├── employeeModel.js        # Employee schema
+│   ├── payrollModel.js         # Payroll schema
+│   ├── esopModel.js            # Equity grant schema
+│   ├── financingModel.js       # Financing schema
+│   ├── auditModel.js           # Audit log schema
+│   ├── loginAttempts.js        # Login attempts schema (tracks login attemts)
+│   ├── revokedToken.js         # Revoked token schema (Stores revoked JWT tokens)
+│   ├── subcriptionModel.js     # Subscription schema
+│   └── paymentTransactionModel.js  # Transaction schema
+├── routes/                     # API routes
+│   ├── index.js                # Main router
+│   ├── authRoutes.js           # Authentication routes
+│   ├── employeeRoutes.js       # Employee routes
+│   ├── payrollRoutes.js        # Payroll routes
+│   ├── esopRoutes.js           # Equity routes
+│   ├── financingRoutes.js      # Financing routes
+│   ├── dashboardRoutes.js      # Dashboard routes
+│   ├── companyRoutes.js        # Company routes
+│   └── subscriptionRoutes.js   # Subscription routes
+├── services/                   # Business logic services
+│   ├── authService.js          # Authentication logic
 │   ├── payrollService.js     # Payroll calculations
 │   ├── taxCalculationService.js # Tax calculations
 │   ├── vestingService.js     # Vesting logic
 │   ├── emailService.js       # Email sending
 │   └── auditService.js       # Audit operations
+│   ├── gateways/             # payment-logic
+│   └── flutterwave.js        # flutterwave integration
+│   └── monnify.js            # monnify integration
+│   └── index.js              
 ├── utils/                    # Utility functions
 │   └── helpers.js            # Helper functions
 ├── app.js                    # Express app configuration
@@ -230,7 +255,7 @@ career-pay-app/
 
 All API endpoints are prefixed with `/api`. The base URL structure is:
 - Development: `http://localhost:5000/api`
-- Production: `https://your-domain.com/api`
+- Production: `https://career-pay.render.com/api`
 
 ### Authentication Endpoints
 
@@ -652,20 +677,23 @@ Response: { success: true, message: "API is running", timestamp }
 ### User Model
 - email (unique, required)
 - password (hashed, required)
-- firstName, lastName, phone
+- firstName, lastName, phone, profilePhoto
 - role (founder, admin, hr, employee)
 - company (reference)
 - isActive, lastLogin
-- passwordResetToken, passwordResetExpires
+- passwordResetToken, passwordResetExpires, refreshTokens, passwordChangedAt, passwordHistory, loginAttempts,loginAttemptsWindowStart, lockUntil , knownDevices
 
 ### Company Model
 - name, email (unique), phone, address
-- industry, companySize, registrationNumber, taxId
+- industry, companySize, registrationNumber, taxId, website, logo
 - baseCurrency (NGN, USD)
 - payrollSettings (paymentDay, payFrequency, enableAutomaticTax, enablePension)
 - bankDetails
-- subscription (plan, status, dates)
-- isVerified, isActive, onboardingCompleted
+- emailVerificationToken
+- emailVerificationExpires
+- subscription (plan, status, startDate. endDate)
+- isVerified, isActive, onboardingCompleted, 
+- monthsActive, payrollRunsLast3Months, monthlyPayrollCost, hasOutstandingDefault, kycComplete, latePaymentsCount, fundingStage
 
 ### Employee Model
 - user (reference), company (reference)
@@ -679,22 +707,23 @@ Response: { success: true, message: "API is running", timestamp }
 
 ### Payroll Model
 - company (reference)
-- payrollPeriod (month, year)
+- currency
+- payrollPeriod (month, year, periodNumber)
 - payrollItems (array of employee payroll items)
 - summary (totals)
 - status (draft, calculated, approved, processing, completed, failed)
-- approvedBy, approvedAt
+- createdBy, approvedBy, approvedAt
 - processedBy, processedAt
 - financingUsed (reference)
 - notes
 
 ### PayrollItem Schema (embedded)
 - employee (reference)
-- grossSalary
+- baseSalary, grossSalary
 - deductions (tax, pension, nhf, otherDeductions)
 - additions (bonus, allowances, overtime)
 - employerContributions (pension, nhis, itf, nsitf)
-- netSalary, currency
+- netSalary
 - paymentStatus, paymentDate, paymentReference
 
 ### ESOP Model (Equity Grant)
@@ -717,24 +746,26 @@ Response: { success: true, message: "API is running", timestamp }
 - company (reference)
 - applicationDate
 - requestedAmount, approvedAmount, currency
+- creditScore, riskMultiplier, maxCreditLimit
 - purpose (payroll, operations, growth, other)
 - status (pending, under_review, approved, rejected, disbursed, active, completed, defaulted)
+- serviceCharge
 - interestRate, repaymentFrequency
-- disbursementDate, disbursementReference
-- totalRepaymentAmount, amountRepaid, outstandingBalance
+- disbursementDate, disbursementReference, disbursedToWallet, graceCutOff
+- totalRepaymentAmount, amountRepaid, repaymentTermDays, outstandingBalance
 - repaymentSchedule (array)
 - financialPartner, companyDetails
 - reviewedBy, reviewedAt, reviewNotes, rejectionReason
 - documents
 
 ### RepaymentSchedule Schema (embedded)
-- dueDate, amount, principal, interest
+- amount, principal, interest
 - isPaid, paidDate, paidAmount, paymentReference
 
 ### Audit Model
 - company, user (references)
 - action (enum of all tracked actions)
-- module (auth, company, employee, payroll, equity, financing, admin, system)
+- module (auth, company, employee, payroll, equity, financing, subscription, admin, system)
 - resourceType, resourceId
 - details (mixed), changes (before/after)
 - ipAddress, userAgent
@@ -757,6 +788,7 @@ Manages payroll operations:
 - Payroll creation and calculation
 - Integration with tax calculation service
 - Payroll approval and processing
+- Payroll disbursement and payment logic
 - Payslip generation
 - Payroll export
 - Statistics calculation
@@ -782,9 +814,12 @@ Equity vesting management:
 ### EmailService
 Email functionality:
 - Welcome emails
+- security alert emails
 - Password reset emails
+- verification emails
 - Notification emails
-- Integration with Nodemailer
+- payslip emails
+- Integration with brevo
 
 ### AuditService
 Audit log operations:
@@ -817,11 +852,11 @@ Allows HR, admin, and founder roles
 #### verifyEmployeeOwnership
 Ensures employees can only access their own data
 
+### requireVerified
+Blocks access to protected features until company email is verified
+
 #### optionalAuth
 Optional authentication that doesn't fail if no token provided
-
-#### checkSubscription
-Verifies company has active subscription
 
 #### attachEmployee
 Attaches employee record to request for employee-specific routes
@@ -901,6 +936,7 @@ Tracks data changes with before/after states
 - Activity monitoring by severity
 
 ## Deployment
+Render
 
 ### Vercel Deployment
 

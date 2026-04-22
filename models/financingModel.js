@@ -1,10 +1,6 @@
 import mongoose from "mongoose";
 
 const repaymentScheduleSchema = new mongoose.Schema({
-  dueDate: {
-    type: Date,
-    required: true,
-  },
 
   amount: {
     type: Number,
@@ -106,13 +102,13 @@ const financingSchema = new mongoose.Schema(
       max: 24,
       default: 0
     },
-    serviceCharge: Number, // approvedAmount × 0.15
-    disbursedToWallet: Number, // approvedAmount - serviceCharge
+    serviceCharge: Number, 
+    disbursedToWallet: Number, 
     disbursementDate: Date,
     disbursementReference: String,
 
-    dueDate: Date,   // disbursementDate + repaymentTermDays
-    graceCutoff: Date,   // dueDate + grace period days
+    dueDate: Date,   
+    graceCutoff: Date,   
     totalRepaymentAmount: Number,
     amountRepaid: {
       type: Number,

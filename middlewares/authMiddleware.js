@@ -235,15 +235,6 @@ export const optionalAuth = async (req, res, next) => {
 };
 
 /**
- * Rate limiting check (can be expanded)
- */
-export const checkRateLimit = (req, res, next) => {
-  // TODO: Implement rate limiting logic
-  // For now, just pass through
-  next();
-};
-
-/**
  * Attach employee record to request
  * Useful for routes that need employee information
  */

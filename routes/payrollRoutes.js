@@ -122,4 +122,11 @@ router.get("/transactions", isHROrAbove, payrollController.getAllTransactions);
  */
 router.get("/:id/transactions", isHROrAbove, payrollController.getPayrollTransactions);
 
+/**
+ * @route   POST /api/payroll/:id/retry-failed
+ * @desc    Retry failed payments for a partially completed or failed payroll
+ * @access  Private (Founder/Admin only)
+ */
+router.post("/:id/retry-failed", isFounderOrAdmin, payrollController.retryFailedPayments);
+
 export default router;

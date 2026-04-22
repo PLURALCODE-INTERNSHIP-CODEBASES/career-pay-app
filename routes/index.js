@@ -42,6 +42,9 @@ router.use("/subscriptions", subscriptionRoutes);
  */
 router.post("/payroll/payment-webhook", payrollController.handlePaymentWebhook);
 
+// Public — Monnify calls this, no auth
+router.post("/payroll/monnify-webhook", payrollController.handleMonnifyWebhook);
+
 // Feature-gated routes — require active subscription
 router.use("/payroll",protect, requireSubscription("payroll"), payrollRoutes);
 router.use("/financing", requireSubscription("financing"), financingRoutes);

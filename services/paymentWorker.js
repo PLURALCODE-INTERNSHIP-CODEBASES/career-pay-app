@@ -3,70 +3,41 @@ import { connection } from "../config/paymentQueue.js";
 import PaymentTransaction from "../models/paymentTransactionModel.js";
 import Payroll from "../models/payrollModel.js";
 import Audit from "../models/auditModel.js";
-import axios from "axios";
+import gateways, { GATEWAY_PRIORITY } from "./gateways/index.js";
 
 /**
- * Payment Gateway Abstraction — Flutterwave
+ * Try each gateway in priority order
+ * Falls back to next gateway if current one fails
  */
 async function disburseSinglePayment(transaction) {
-  const { amount, currency, bankDetails, flutterwaveReference } = transaction;
+  let lastError;
 
-  // Guard — bankCode is required by Flutterwave
-  if (!bankDetails.bankCode) {
-    throw new Error(
-      `Bank code missing for account ${bankDetails.accountNumber}. Update employee bank details.`
-    );
+  for (const gatewayName of GATEWAY_PRIORITY) {
+    try {
+      console.log(`Attempting payment via ${gatewayName} for transaction ${transaction._id}`);
+
+      const gateway = gateways[gatewayName];
+      const result = await gateway.initiateTransfer(transaction);
+
+      console.log(`Payment initiated via ${gatewayName} for transaction ${transaction._id}`);
+
+      return { ...result, gateway: gatewayName };
+
+    } catch (error) {
+      console.error(
+        `${gatewayName} failed for transaction ${transaction._id}: ${error.message} — trying next gateway`
+      );
+      lastError = error;
+    }
   }
 
-  const reference = process.env.FLUTTERWAVE_ENV === "production"
-  ? `${flutterwaveReference}-${transaction.attemptCount}`
-  : `${flutterwaveReference}-${transaction.attemptCount}_PMCK`;
-
-  try{
-      const response = await axios.post(
-    "https://api.flutterwave.com/v3/transfers",
-    {
-      account_bank: bankDetails.bankCode,
-      account_number: bankDetails.accountNumber,
-      amount,
-      currency,
-      narration: `Salary payment - CareerPay`,
-      reference,
-      callback_url: `${process.env.APP_URL}/api/payroll/payment-webhook`,
-      debit_currency: currency,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  if (!response.data || response.data.status !== "success") {
-    throw new Error(
-      response.data?.message || "Flutterwave transfer initiation failed"
-    );
-  }
-
-  return {
-    transferId: response.data.data.id.toString(),
-    message: response.data.message,
-  };
-  } catch (error) {
-    // Log the FULL Flutterwave response so you can see exactly what's wrong
-    if (error.response) {
-      console.error("Flutterwave 400 response body:", JSON.stringify(error.response.data, null, 2));
-      console.error("Request payload sent:", JSON.stringify(error.config?.data, null, 2));
-    }
-    throw error;
-    }
+  // All gateways failed
+  throw lastError;
 }
 
 /**
  * Check if all payments for a payroll are settled
  * Updates payroll status to completed, partially_completed, or failed
- * Called from webhook handler after each payment confirmation
  */
 export async function checkAndFinalizePayroll(payrollId) {
   const payroll = await Payroll.findById(payrollId);
@@ -74,7 +45,6 @@ export async function checkAndFinalizePayroll(payrollId) {
 
   const transactions = await PaymentTransaction.find({ payroll: payrollId });
 
-  // Only finalize when every transaction is settled
   const allSettled = transactions.every((t) =>
     ["success", "failed"].includes(t.status)
   );
@@ -98,11 +68,10 @@ export async function checkAndFinalizePayroll(payrollId) {
       (i) => i.employee.toString() === transaction.employee.toString()
     );
     if (item) {
-      item.paymentStatus =
-        transaction.status === "success" ? "paid" : "failed";
+      item.paymentStatus = transaction.status === "success" ? "paid" : "failed";
       if (transaction.status === "success") {
         item.paymentDate = transaction.paidAt;
-        item.paymentReference = transaction.flutterwaveReference;
+        item.paymentReference = transaction.paymentReference;
       }
     }
   }
@@ -111,7 +80,7 @@ export async function checkAndFinalizePayroll(payrollId) {
 
   await Audit.log({
     company: payroll.company,
-    user: payroll.processedBy, 
+    user: payroll.processedBy,
     action:
       payroll.status === "completed"
         ? "payroll_completed"
@@ -135,8 +104,6 @@ export async function checkAndFinalizePayroll(payrollId) {
 
 /**
  * Worker — processes one payment job at a time
- * BullMQ calls this function for every job in the queue
- * Automatically retries on failure based on queue config
  */
 const worker = new Worker(
   "payroll-payments",
@@ -149,41 +116,32 @@ const worker = new Worker(
       throw new Error(`Transaction ${transactionId} not found`);
     }
 
-    // Update attempt count and last attempt time
     transaction.attemptCount += 1;
     transaction.lastAttemptAt = new Date();
     transaction.status = "processing";
     await transaction.save();
 
     try {
-      // Call Flutterwave — initiates the transfer
       const result = await disburseSinglePayment(transaction);
 
-      // Flutterwave accepted the transfer — mark as processing
-      // Final success/failure comes via webhook
-      transaction.flutterwaveTransferId = result.transferId;
+      transaction.gatewayTransferId = result.transferId;
       transaction.gatewayMessage = result.message;
-      // Status stays "processing" — webhook will update to "success" or "failed"
+      transaction.gateway = result.gateway;
       await transaction.save();
-
     } catch (gatewayError) {
       transaction.gatewayMessage = gatewayError.message;
 
       if (transaction.attemptCount >= transaction.maxRetries) {
-        // Permanently failed — all retries exhausted
         transaction.status = "failed";
-        transaction.failureReason = `Failed after ${transaction.maxRetries} attempts. Last error: ${gatewayError.message}`;
+        transaction.failureReason = `Failed after ${transaction.maxRetries} attempts across all gateways. Last error: ${gatewayError.message}`;
         await transaction.save();
 
-        // Check if payroll can be finalized after this permanent failure
         await checkAndFinalizePayroll(transaction.payroll);
       } else {
-        // Will be retried — set back to pending
         transaction.status = "pending";
         await transaction.save();
       }
 
-      // Re-throw so BullMQ knows to retry
       throw gatewayError;
     }
   },
@@ -194,7 +152,7 @@ const worker = new Worker(
 );
 
 worker.on("completed", (job) => {
-  console.log(`Payment job ${job.id} completed — awaiting webhook confirmation`);
+  console.log(`Payment job ${job.id} completed — awaiting confirmation`);
 });
 
 worker.on("failed", (job, error) => {

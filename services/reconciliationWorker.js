@@ -3,7 +3,7 @@ import { connection } from "../config/paymentQueue.js";
 import PaymentTransaction from "../models/paymentTransactionModel.js";
 import payrollService from "./payrollService.js";
 import { checkAndFinalizePayroll } from "./paymentWorker.js";
-import axios from "axios";
+import gateways from "./gateways/index.js";
 
 const RECONCILIATION_QUEUE = "payment-reconciliation";
 const STALE_THRESHOLD_MINUTES = 5;
@@ -51,11 +51,11 @@ const reconciliationWorker = new Worker(
     // Only reconcile transactions that:
     // 1. Are stuck in processing
     // 2. Have been processing for more than 5 minutes
-    // 3. Have a Flutterwave transfer ID (meaning Flutterwave accepted the transfer)
+    // 3. Have a gateway transfer ID (meaning gateway accepted the transfer)
     const staleTransactions = await PaymentTransaction.find({
       status: "processing",
       lastAttemptAt: { $lt: staleThreshold },
-      flutterwaveTransferId: { $exists: true, $ne: null },
+      gatewayTransferId: { $exists: true, $ne: null },
     });
 
     if (staleTransactions.length === 0) {
@@ -64,62 +64,61 @@ const reconciliationWorker = new Worker(
     }
 
     console.log(
-      `[Reconciliation] Found ${staleTransactions.length} stale transaction(s) — checking with Flutterwave`
+      `[Reconciliation] Found ${staleTransactions.length} stale transaction(s) — checking with gateway`
     );
 
     for (const transaction of staleTransactions) {
       try {
-        // Query Flutterwave directly for the transfer status
-        const response = await axios.get(
-          `https://api.flutterwave.com/v3/transfers/${transaction.flutterwaveTransferId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-            },
-          }
-        );
+       // Use the correct gateway based on which one processed this transaction
+        const gatewayName = transaction.gateway || "flutterwave"; // ← ADDED fallback
+        const gateway = gateways[gatewayName]; // ← CHANGED from hardcoded Flutterwave axios call
 
-        const transferData = response.data.data;
-        const flwStatus = transferData.status; // "SUCCESSFUL", "FAILED", "NEW", "PENDING"
+        if (!gateway) {
+          console.error(
+            `[Reconciliation] Unknown gateway "${gatewayName}" for transaction ${transaction._id} — skipping`
+          );
+          continue;
+        }
+
+        const flwStatus = await gateway.verifyTransfer(transaction.gatewayTransferId);
 
         console.log(
-          `[Reconciliation] Transaction ${transaction._id} — Flutterwave status: ${flwStatus}`
+          `[Reconciliation] Transaction ${transaction._id} — ${gatewayName} status: ${flwStatus}`
         );
 
         if (flwStatus === "SUCCESSFUL") {
           transaction.status = "success";
           transaction.paidAt = new Date();
-          transaction.gatewayMessage = "Transfer successful (reconciled)";
+          transaction.gatewayMessage = `Transfer successful (reconciled via ${gatewayName})`;
           await transaction.save();
 
           await payrollService.markPayrollItemPaid(
             transaction.payroll,
             transaction.employee,
-            transaction.flutterwaveReference
+            transaction.paymentReference
           );
 
           await checkAndFinalizePayroll(transaction.payroll);
 
           console.log(
-            `[Reconciliation] Transaction ${transaction._id} — marked as success`
+            `[Reconciliation] Transaction ${transaction._id} — marked as success via ${gatewayName}`
           );
         } else if (flwStatus === "FAILED") {
           transaction.status = "failed";
-          transaction.failureReason =
-            transferData.complete_message || "Transfer failed (reconciled)";
-          transaction.gatewayMessage = transferData.complete_message;
+         transaction.failureReason = `Transfer failed (reconciled via ${gatewayName})`;
+          transaction.gatewayMessage = `Transfer failed via ${gatewayName}`;
           await transaction.save();
 
           await checkAndFinalizePayroll(transaction.payroll);
 
           console.log(
-            `[Reconciliation] Transaction ${transaction._id} — marked as failed`
+            `[Reconciliation] Transaction ${transaction._id} — marked as failed via ${gatewayName}`
           );
         } else {
           // Status is still NEW or PENDING — Flutterwave hasn't settled it yet
           // Will be picked up again in the next reconciliation cycle
           console.log(
-            `[Reconciliation] Transaction ${transaction._id} — still ${flwStatus}, will check next cycle`
+            `[Reconciliation] Transaction ${transaction._id} — still ${flwStatus} on ${gatewayName}, will check next cycle`
           );
         }
       } catch (error) {
